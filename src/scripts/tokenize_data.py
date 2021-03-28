@@ -26,7 +26,7 @@ def tokenize_data():
     train_csv['InChI_index'] = train_csv['InChI_tokens'].progress_apply(
         tokenizer.text_to_sequence)
 
-    # train_csv.to_csv('/workdir/data/processed/train_labels_processed.csv', index=False)
+    # to properly save lists save as pickle
     train_csv.to_pickle('/workdir/data/processed/train_labels_processed.pkl')
 
 
