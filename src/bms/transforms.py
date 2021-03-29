@@ -30,6 +30,12 @@ class ToTensor:
         return arr
 
 
+class AddChannel:
+    def __call__(self, arr):
+        arr = arr.unsqueeze(0)
+        return arr
+
+
 class MoveChannels:
     def __init__(self, to_channels_first=True):
         self.to_channels_first = to_channels_first
@@ -45,6 +51,7 @@ def get_transforms(size):
     transforms = torchvision.transforms.Compose([
         Scale(size),
         Normalize(),
+        MoveChannels(),
         ToTensor()
     ])
     return transforms

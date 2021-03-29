@@ -35,10 +35,15 @@ def is_put_space(prev_char, curr_char):
     return False
 
 
+def remove_InChI_prefix(text):
+    """Remove constant "InChI=1S/" from text."""
+
+    return '/'.join(text.split('/')[1:])
+
+
 def split_InChI_to_tokens(raw_text):
     """Split InChI-string to separate tokens."""
 
-    # remove constant "InChI=1S/" from text
     raw_text = '/'.join(raw_text.split('/')[1:])
 
     splitted_text = ''
@@ -58,11 +63,11 @@ class Tokenizer(object):
     """
 
     def __init__(self):
-        self.token_to_idx = {}
-        self.idx_to_token = {}
+        self.token2idx = {}
+        self.idx2token = {}
 
     def __len__(self):
-        return len(self.stoi)
+        return len(self.token2idx)
 
     def fit_on_texts(self, texts):
         """Create vocab of tokens from list of texts."""
@@ -75,15 +80,31 @@ class Tokenizer(object):
         vocab.append('<eos>')
         vocab.append('<pad>')
         for idx, token in enumerate(vocab):
-            self.token_to_idx[token] = idx
-            self.idx_to_token[idx] = token
+            self.token2idx[token] = idx
+            self.idx2token[idx] = token
 
     def text_to_sequence(self, text):
         """Convert text to sequence of token indexes."""
 
         sequence = []
-        sequence.append(self.token_to_idx['<sos>'])
+        sequence.append(self.token2idx['<sos>'])
         for s in text.split(' '):
-            sequence.append(self.token_to_idx[s])
-        sequence.append(self.token_to_idx['<eos>'])
+            sequence.append(self.token2idx[s])
+        sequence.append(self.token2idx['<eos>'])
         return sequence
+
+    def predict_caption(self, sequence):
+        caption = ''
+        for i in sequence:
+            if i == self.token2idx['<eos>'] or i == self.token2idx['<pad>']:
+                break
+            if i != self.token2idx['<sos>']:
+                caption += self.idx2token[i]
+        return caption
+
+    def predict_captions(self, sequences):
+        captions = []
+        for sequence in sequences:
+            caption = self.predict_caption(sequence)
+            captions.append(caption)
+        return captions

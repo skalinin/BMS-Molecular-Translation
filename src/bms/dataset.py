@@ -1,22 +1,69 @@
 import torch
 from torch.utils.data import Dataset
 import pandas as pd
+import random
 import cv2
 
 
+def collate_fn(data):
+    """
+    Get from https://github.com/yunjey/pytorch-tutorial/tree/master/tutorials/03-advanced/image_captioning
+
+    Creates mini-batch tensors from the list of tuples (image, caption).
+
+    We should build custom collate_fn rather than using default collate_fn,
+    because merging caption (including padding) is not supported in default.
+    Args:
+        data: list of tuple (image, caption).
+            - image: torch tensor of shape (3, 256, 256).
+            - caption: torch tensor of shape (?); variable length.
+    Returns:
+        images: torch tensor of shape (batch_size, 3, 256, 256).
+        targets: torch tensor of shape (batch_size, padded_length).
+        lengths: list; valid length for each padded caption.
+    """
+    # Sort a data list by caption length (descending order).
+    data.sort(key=lambda x: len(x[1]), reverse=True)
+    images, captions, text = zip(*data)
+
+    # Merge images (from tuple of 3D tensor to 4D tensor).
+    images = torch.stack(images, 0)
+
+    # Merge captions (from tuple of 1D tensor to 2D tensor).
+    lengths = [len(cap) for cap in captions]
+    targets = torch.zeros(len(captions), max(lengths)).long()
+    for i, cap in enumerate(captions):
+        end = lengths[i]
+        targets[i, :end] = cap[:end]
+    return images, targets, lengths, text
+
+
 class BMSDataset(Dataset):
-    def __init__(self, data_pickle_path, transform=None):
+    def __init__(self, data_csv, max_dataset_len=None, transform=None):
         super().__init__()
         self.transform = transform
-        data_csv = pd.read_pickle(data_pickle_path)
+        data_csv_len = data_csv.shape[0] - 1
+        self.max_dataset_len = max_dataset_len
+        if self.max_dataset_len is not None:
+            self.dataset_len = self.max_dataset_len
+        else:
+            self.dataset_len = data_csv_len
         self.image_paths = data_csv['image_path'].values
+        self.inchi_text = data_csv['InChI_text'].values
         self.inchi_tokens = data_csv['InChI_index'].values
 
+    def __len__(self):
+        return self.dataset_len
+
     def __getitem__(self, idx):
+        if self.max_dataset_len is not None:
+            idx = random.randint(0, self.dataset_len)
         image_path = self.image_paths[idx]
         target = self.inchi_tokens[idx]
-        target_length = len(target)
-        image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        text = self.inchi_text[idx]
+        image = cv2.imread(image_path)
         if self.transform is not None:
             image = self.transform(image)
-        return image, target, target_length
+
+        target = torch.Tensor(target)
+        return image, target, text
