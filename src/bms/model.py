@@ -6,9 +6,9 @@ from torch.nn.utils.rnn import pack_padded_sequence
 
 class EncoderCNN(nn.Module):
     def __init__(self, embed_size):
-        """Load the pretrained ResNet-18 and replace top fc layer."""
+        """Load the pretrained ResNet-34 and replace top fc layer."""
         super(EncoderCNN, self).__init__()
-        resnet = models.resnet18(pretrained=True)
+        resnet = models.resnet34(pretrained=True)
         modules = list(resnet.children())[:-1]      # delete the last fc layer.
         self.resnet = nn.Sequential(*modules)
         self.linear = nn.Linear(resnet.fc.in_features, embed_size)
@@ -16,8 +16,7 @@ class EncoderCNN(nn.Module):
         
     def forward(self, images):
         """Extract feature vectors from input images."""
-        with torch.no_grad():
-            features = self.resnet(images)
+        features = self.resnet(images)
         features = features.reshape(features.size(0), -1)
         features = self.bn(self.linear(features))
         return features
