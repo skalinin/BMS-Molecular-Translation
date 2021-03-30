@@ -43,6 +43,11 @@ def train_loop(
         encoder.zero_grad()
         loss.backward()
         optimizer.step()
+        # Print log info
+        if i % args.log_step == 0:
+            print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}, Time: {}'
+                  .format(epoch, args.num_epochs, i, total_step, loss_avg.avg,
+                          time_remain(start, (i+1)/total_step)))
     # Print log info
     print('Epoch [{}/{}], Loss: {:.4f}'.format(
         epoch, args.num_epochs, loss_avg.avg))
@@ -56,10 +61,8 @@ def train_loop(
 
 
 def val_loop(args, data_loader, encoder, decoder, criterion, tokenizer):
-    total_step = len(data_loader)
     loss_avg = AverageMeter()
     acc_avg = AverageMeter()
-    start = time.time()
     if decoder.training:
         decoder.eval()
     if encoder.training:
@@ -89,8 +92,8 @@ def val_loop(args, data_loader, encoder, decoder, criterion, tokenizer):
 def get_loaders(args, data_csv):
     data_csv_len = data_csv.shape[0] - 1
     train_data_size = int(0.99*data_csv_len)
-    data_csv_train = data_csv.iloc[:train_data_size,:]
-    data_csv_val = data_csv.iloc[train_data_size:,:]
+    data_csv_train = data_csv.iloc[:train_data_size, :]
+    data_csv_val = data_csv.iloc[train_data_size:, :]
 
     train_transform = get_transforms((224, 224))
     val_transform = get_transforms((224, 224))
@@ -158,6 +161,8 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str,
                         default='/workdir/data/experiments/test/',
                         help='path for saving trained models')
+    parser.add_argument('--log_step', type=int, default=200,
+                        help='step size for prining log info')
 
     # Model parameters
     parser.add_argument('--embed_size', type=int, default=256,
