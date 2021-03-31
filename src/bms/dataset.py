@@ -35,29 +35,28 @@ def collate_fn(data):
     for i, cap in enumerate(captions):
         end = lengths[i]
         targets[i, :end] = cap[:end]
+    lengths = torch.LongTensor(lengths)
     return images, targets, lengths, text
 
 
 class BMSDataset(Dataset):
-    def __init__(self, data_csv, max_dataset_len=None, transform=None):
+    def __init__(self, data_csv, restrict_dataset_len=None, transform=None):
         super().__init__()
         self.transform = transform
-        data_csv_len = data_csv.shape[0] - 1
-        self.max_dataset_len = max_dataset_len
-        if self.max_dataset_len is not None:
-            self.dataset_len = self.max_dataset_len
-        else:
-            self.dataset_len = data_csv_len
+        self.data_csv_len = data_csv.shape[0] - 1
+        self.restrict_dataset_len = restrict_dataset_len
         self.image_paths = data_csv['image_path'].values
         self.inchi_text = data_csv['InChI_text'].values
         self.inchi_tokens = data_csv['InChI_index'].values
 
     def __len__(self):
-        return self.dataset_len
+        if self.restrict_dataset_len is not None:
+            return self.restrict_dataset_len
+        return self.data_csv_len
 
     def __getitem__(self, idx):
-        if self.max_dataset_len is not None:
-            idx = random.randint(0, self.dataset_len)
+        if self.restrict_dataset_len is not None:
+            idx = random.randint(0, self.data_csv_len)
         image_path = self.image_paths[idx]
         target = self.inchi_tokens[idx]
         text = self.inchi_text[idx]
