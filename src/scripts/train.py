@@ -8,10 +8,8 @@ import time
 
 from bms.dataset import collate_fn, BMSDataset
 from bms.transforms import get_transforms
-from bms.model import EncoderCNN, DecoderRNN
+from bms.model import EncoderCNN, DecoderWithAttention
 from bms.metrics import AverageMeter, time_remain, get_score
-
-# from pudb import set_trace; set_trace()
 
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -32,13 +30,19 @@ def train_loop(
         # Set mini-batch dataset
         images = images.to(DEVICE)
         captions = captions.to(DEVICE)
-        targets = \
-            pack_padded_sequence(captions, lengths, batch_first=True)[0]
         # Forward, backward and optimize
         features = encoder(images)
-        outputs = decoder(features, captions, lengths)
-        loss = criterion(outputs, targets)
+        predictions, caps_sorted, decode_lengths, _ = decoder(features, captions, lengths)
+
+        # Since we decoded starting with <start>, the targets are all words after <start>, up to <end>
+        targets = caps_sorted[:, 1:]
+        # Remove timesteps that we didn't decode at, or are pads
+        # pack_padded_sequence is an easy trick to do this
+        targets = pack_padded_sequence(targets, decode_lengths, batch_first=True)[0]
+        outputs = pack_padded_sequence(predictions, decode_lengths, batch_first=True)[0]
+        loss = criterion(outputs, targets)  # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
         loss_avg.update(loss.item(), args.batch_size)
+
         decoder.zero_grad()
         encoder.zero_grad()
         loss.backward()
@@ -60,7 +64,7 @@ def train_loop(
         'encoder-{}-{:.4f}.ckpt'.format(epoch+1, loss_avg.avg)))
 
 
-def val_loop(args, data_loader, encoder, decoder, criterion, tokenizer):
+def val_loop(args, data_loader, encoder, decoder, criterion, tokenizer, max_seq_length):
     loss_avg = AverageMeter()
     acc_avg = AverageMeter()
     if decoder.training:
@@ -72,26 +76,26 @@ def val_loop(args, data_loader, encoder, decoder, criterion, tokenizer):
         # Set mini-batch dataset
         images = images.to(DEVICE)
         captions = captions.to(DEVICE)
-        targets = \
-            pack_padded_sequence(captions, lengths, batch_first=True)[0]
+        targets = pack_padded_sequence(captions, lengths, batch_first=True)[0]
         # Forward
         with torch.no_grad():
             features = encoder(images)
-            outputs = decoder(features, captions, lengths)
-            loss = criterion(outputs, targets)
-            sampled_ids = decoder.sample(features)
-            sampled_ids = sampled_ids.cpu().numpy()
-        text_preds = tokenizer.predict_captions(sampled_ids)
+            predictions = decoder.predict(features, max_seq_length, tokenizer)
+        predicted_sequence = torch.argmax(predictions.detach().cpu(), -1).numpy()
+            # targets = pack_padded_sequence(captions, decode_lengths, batch_first=True)[0]
+            # outputs = pack_padded_sequence(predictions, decode_lengths, batch_first=True)[0]
+            # loss = criterion(outputs, targets)
+        text_preds = tokenizer.predict_captions(predicted_sequence)
         acc_avg.update(get_score(text_true, text_preds), args.batch_size)
-        loss_avg.update(loss.item(), args.batch_size)
+        # loss_avg.update(loss.item(), args.batch_size)
     # Print log info
-    print('Val step Loss: {:.4f}, Acc: {:.4f}'.format(
-        loss_avg.avg, acc_avg.avg))
+    print('Val step Acc: {:.4f}'.format(acc_avg.avg))
+         # loss_avg.avg, acc_avg.avg))
 
 
 def get_loaders(args, data_csv):
     data_csv_len = data_csv.shape[0] - 1
-    train_data_size = int(0.99*data_csv_len)
+    train_data_size = int(0.98*data_csv_len)
     data_csv_train = data_csv.iloc[:train_data_size, :]
     data_csv_val = data_csv.iloc[train_data_size:, :]
 
@@ -99,7 +103,7 @@ def get_loaders(args, data_csv):
     val_transform = get_transforms((224, 224))
     train_dataset = BMSDataset(
         data_csv=data_csv_train,
-        max_dataset_len=args.train_dataset_len,
+        restrict_dataset_len=args.train_dataset_len,
         transform=train_transform
     )
     train_loader = torch.utils.data.DataLoader(
@@ -133,27 +137,26 @@ def main(args):
     train_loader, val_loader = get_loaders(args, data_csv)
 
     # Build the models
-    encoder = EncoderCNN(args.embed_size).to(DEVICE)
-    decoder = DecoderRNN(
-        embed_size=args.embed_size,
-        hidden_size=args.hidden_size,
-        vocab_size=len(tokenizer.token2idx),
-        num_layers=args.num_layers,
-        max_seq_length=max_seq_length
+    encoder = EncoderCNN().to(DEVICE)
+    decoder = DecoderWithAttention(
+        attention_dim=args.attention_dim,
+        embed_dim=args.embed_dim,
+        decoder_dim=args.decoder_dim,
+        vocab_size=len(tokenizer),
+        device=DEVICE,
+        dropout=args.dropout,
     ).to(DEVICE)
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss()
-    params = list(decoder.parameters()) + \
-        list(encoder.linear.parameters()) + \
-        list(encoder.bn.parameters())
+    params = list(decoder.parameters()) + list(encoder.parameters())
     optimizer = torch.optim.Adam(params, lr=args.learning_rate)
 
     for epoch in range(args.num_epochs):
         # Train the models
         train_loop(
             args, train_loader, encoder, decoder, criterion, optimizer, epoch)
-        val_loop(args, val_loader, encoder, decoder, criterion, tokenizer)
+        val_loop(args, val_loader, encoder, decoder, criterion, tokenizer, max_seq_length)
 
 
 if __name__ == '__main__':
@@ -161,20 +164,22 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str,
                         default='/workdir/data/experiments/test/',
                         help='path for saving trained models')
-    parser.add_argument('--log_step', type=int, default=200,
+    parser.add_argument('--log_step', type=int, default=500,
                         help='step size for prining log info')
 
     # Model parameters
-    parser.add_argument('--embed_size', type=int, default=256,
-                        help='dimension of word embedding vectors')
-    parser.add_argument('--hidden_size', type=int, default=512,
-                        help='dimension of lstm hidden states')
-    parser.add_argument('--num_layers', type=int, default=1,
-                        help='number of layers in lstm')
+    parser.add_argument('--attention_dim', type=int, default=256,
+                        help='???')
+    parser.add_argument('--embed_dim', type=int, default=256,
+                        help='dimension ???')
+    parser.add_argument('--decoder_dim', type=int, default=523,
+                        help='???')
+    parser.add_argument('--dropout', type=float, default=0.5,
+                        help='dropout rate')
 
     parser.add_argument('--num_epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--train_dataset_len', type=int, default=250000)
+    parser.add_argument('--train_dataset_len', type=int, default=300000)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     args = parser.parse_args()

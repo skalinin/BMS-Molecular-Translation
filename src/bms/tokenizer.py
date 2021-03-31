@@ -98,8 +98,7 @@ class Tokenizer(object):
         for i in sequence:
             if i == self.token2idx['<eos>'] or i == self.token2idx['<pad>']:
                 break
-            if i != self.token2idx['<sos>']:
-                caption += self.idx2token[i]
+            caption += self.idx2token[i]
         return caption
 
     def predict_captions(self, sequences):
