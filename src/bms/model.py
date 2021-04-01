@@ -105,18 +105,16 @@ class DecoderWithAttention(nn.Module):
         vocab_size = self.vocab_size
         encoder_out = encoder_out.view(batch_size, -1, encoder_dim)  # (batch_size, num_pixels, encoder_dim)
         num_pixels = encoder_out.size(1)
-        # caption_lengths, sort_ind = caption_lengths.squeeze(1).sort(dim=0, descending=True)
-        # encoder_out = encoder_out[sort_ind]
-        # encoded_captions = encoded_captions[sort_ind]
 
         # embedding transformed sequence for vector
         embeddings = self.embedding(encoded_captions)  # (batch_size, max_caption_length, embed_dim)
         # initialize hidden state and cell state of LSTM cell
         h, c = self.init_hidden_state(encoder_out)  # (batch_size, decoder_dim)
-        # set decode length by caption length - 1 because of omitting start token
+        # We won't decode at the <end> position, since we've finished generating as soon as we generate <end>
+        # So, decoding lengths are actual lengths - 1 (we do not pass <end> to
+        # the lstm as we do not want to teach it to predict after <end> token)
         decode_lengths = (caption_lengths - 1).tolist()
         predictions = torch.zeros(batch_size, max(decode_lengths), vocab_size).to(self.device)
-        alphas = torch.zeros(batch_size, max(decode_lengths), num_pixels).to(self.device)
         # predict sequence
         for t in range(max(decode_lengths)):
             batch_size_t = sum([l > t for l in decode_lengths])  # samples in batch which has lengths more than t
@@ -128,8 +126,7 @@ class DecoderWithAttention(nn.Module):
                 (h[:batch_size_t], c[:batch_size_t]))  # (batch_size_t, decoder_dim)
             preds = self.fc(self.dropout(h))  # (batch_size_t, vocab_size)
             predictions[:batch_size_t, t, :] = preds
-            alphas[:batch_size_t, t, :] = alpha
-        return predictions, encoded_captions, decode_lengths, alphas
+        return predictions, decode_lengths
 
     def predict(self, encoder_out, decode_lengths, tokenizer):
         batch_size = encoder_out.size(0)
@@ -152,7 +149,5 @@ class DecoderWithAttention(nn.Module):
                 (h, c))  # (batch_size_t, decoder_dim)
             preds = self.fc(self.dropout(h))  # (batch_size_t, vocab_size)
             predictions[:, t, :] = preds
-            if np.argmax(preds.detach().cpu().numpy()) == tokenizer.token2idx["<eos>"]:
-                break
             embeddings = self.embedding(torch.argmax(preds, -1))
         return predictions
