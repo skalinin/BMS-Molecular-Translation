@@ -3,10 +3,10 @@
 def is_put_space(prev_char, curr_char):
     """Cases to put space in string."""
 
-    # split numbers from letters
+    # split numbers from anything
     if (
         curr_char.isdigit()
-        and not prev_char.isdigit()
+        # and not prev_char.isdigit()
     ):
         return True
 
@@ -43,8 +43,6 @@ def remove_InChI_prefix(text):
 
 def split_InChI_to_tokens(raw_text):
     """Split InChI-string to separate tokens."""
-
-    raw_text = '/'.join(raw_text.split('/')[1:])
 
     splitted_text = ''
     prev_char = ''
