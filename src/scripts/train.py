@@ -1,5 +1,6 @@
 import torch
 from torch.nn.utils.rnn import pack_padded_sequence
+from torch.optim.lr_scheduler import CosineAnnealingLR
 import torch.nn as nn
 import pandas as pd
 import os
@@ -17,7 +18,7 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def train_loop(
-    args, data_loader, encoder, decoder, criterion, optimizer, epoch
+    args, data_loader, encoder, decoder, criterion, optimizer, epoch, scheduler
 ):
     total_step = len(data_loader)
     loss_avg = AverageMeter()
@@ -50,14 +51,12 @@ def train_loop(
         torch.nn.utils.clip_grad_norm_(decoder.parameters(), 5)
         optimizer.step()
         # Print log info
-        if i % args.log_step == 0:
+        if i % args.log_step == 0 and i > 0:
             print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}, Time: {}'
                   .format(epoch, args.num_epochs, i, total_step, loss_avg.avg,
                           time_remain(start, (i+1)/total_step)))
-    # Print log info
-    print('Epoch [{}/{}], Loss: {:.4f}'.format(
-        epoch, args.num_epochs, loss_avg.avg))
     # Save the model checkpoints
+    scheduler.step()
     torch.save(decoder.state_dict(), os.path.join(
         args.model_path,
         'decoder-{}-{:.4f}.ckpt'.format(epoch+1, loss_avg.avg)))
@@ -77,7 +76,7 @@ def val_loop(args, data_loader, encoder, decoder, criterion, tokenizer, max_seq_
         # Set mini-batch dataset
         images = images.to(DEVICE)
         captions = captions.to(DEVICE)
-        targets = pack_padded_sequence(captions, lengths, batch_first=True)[0]
+        # targets = pack_padded_sequence(captions, lengths, batch_first=True)[0]
         # Forward
         with torch.no_grad():
             features = encoder(images)
@@ -99,8 +98,8 @@ def get_loaders(args, data_csv):
         print(f'Train dataset len: {data_csv_train.shape[0]}')
     print(f'Train dataset len: {data_csv_val.shape[0]}')
 
-    train_transform = get_train_transforms((224, 224))
-    val_transform = get_val_transforms((224, 224))
+    train_transform = get_train_transforms(args.output_height, args.output_width)
+    val_transform = get_val_transforms(args.output_height, args.output_width)
     train_dataset = BMSDataset(
         data_csv=data_csv_train,
         restrict_dataset_len=args.train_dataset_len,
@@ -161,11 +160,13 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
     params = list(decoder.parameters()) + list(encoder.parameters())
     optimizer = torch.optim.Adam(params, lr=args.learning_rate)
+    scheduler = CosineAnnealingLR(optimizer, T_max=8, eta_min=1e-05)
 
     for epoch in range(args.num_epochs):
-        train_loop(
-            args, train_loader, encoder, decoder, criterion, optimizer, epoch)
-        val_loop(args, val_loader, encoder, decoder, criterion, tokenizer, max_seq_length)
+        train_loop(args, train_loader, encoder, decoder, criterion, optimizer,
+                   epoch, scheduler)
+        val_loop(args, val_loader, encoder, decoder, criterion, tokenizer,
+                 max_seq_length)
 
 
 if __name__ == '__main__':
@@ -179,6 +180,10 @@ if __name__ == '__main__':
                         help='encoder pretrain path')
     parser.add_argument('--decoder_pretrain', type=str, default='',
                         help='decoder pretrain path')
+    parser.add_argument('--output_height', type=int, default=150,
+                        help='Height of images in dataset')
+    parser.add_argument('--output_width', type=int, default=300,
+                        help='Max width of images in dataset')
 
     # Model parameters
     parser.add_argument('--attention_dim', type=int, default=256,

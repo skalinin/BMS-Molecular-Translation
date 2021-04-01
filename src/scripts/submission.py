@@ -7,7 +7,7 @@ import argparse
 
 from bms.utils import get_file_path
 from bms.dataset import BMSSumbissionDataset
-from bms.transforms import get_submission_transforms
+from bms.transforms import get_val_transforms
 from bms.model import EncoderCNN, DecoderWithAttention
 from bms.utils import load_pretrain_model
 
@@ -47,7 +47,7 @@ def main(args):
 
     tokenizer = torch.load('/workdir/data/processed/tokenizer.pth')
 
-    test_transform = get_submission_transforms((224, 224))
+    test_transform = get_val_transforms(args.output_height, args.output_width)
     test_dataset = BMSSumbissionDataset(
         data_csv=test_csv,
         transform=test_transform
@@ -98,6 +98,10 @@ if __name__ == '__main__':
                         help='input size of decoder network')
     parser.add_argument('--dropout', type=float, default=0.5,
                         help='dropout rate')
+    parser.add_argument('--output_height', type=int, default=150,
+                        help='Height of images in dataset')
+    parser.add_argument('--output_width', type=int, default=300,
+                        help='Max width of images in dataset')
 
     parser.add_argument('--submission_path', type=str,
                         default='/workdir/data/experiments/',

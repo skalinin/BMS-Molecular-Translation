@@ -373,36 +373,52 @@ class Transpose:
         return img.transpose(1, 0)
 
 
-class BMSFixTransform:
+class MakeHorizontal:
     def __init__(self):
-        self.fix_transforms = torchvision.transforms.Compose([
-            Transpose(),
-            VerticalFlip()
-        ])
+        self.rotate = Rotate(1)
 
     def __call__(self, img):
         h, w, _ = img.shape
         if h > w:
-            img = self.fix_transforms(img)
+            img = self.rotate(img)
         return img
 
 
-def get_train_transforms(size, prob=0.2):
+class RescalePaddingImage:
+    def __init__(self, output_height, output_width):
+        self.output_height = output_height
+        self.output_width = output_width
+
+    def __call__(self, image):
+        h, w = image.shape[:2]
+        # width proportional to change in  height
+        new_width = int(w*(self.output_height/h))
+        # new_width cannot be bigger than output_width
+        new_width = min(new_width, self.output_width)
+        image = cv2.resize(image, (new_width, self.output_height),
+                           interpolation=cv2.INTER_LINEAR)
+        if new_width < self.output_width:
+            image = np.pad(image, ((0, 0), (0, self.output_width - new_width), (0, 0)),
+                           'constant', constant_values=255)
+
+        return image
+
+
+def get_train_transforms(output_height, output_width, prob=0.2):
     transforms = torchvision.transforms.Compose([
+        MakeHorizontal(),
+        UseWithProb(RandomCrop(0.8), prob=prob),
+        RescalePaddingImage(output_height, output_width),
         UseWithProb(GaussNoise(20), prob=prob),
         UseWithProb(
             RandomTransform(contr=0.5, bright=30, sigma_squared=20, n_vert=15),
             prob=prob
         ),
         UseWithProb(RandomGaussianBlur(max_ksize=3), prob=prob),
-        UseWithProb(Transpose(), prob=prob),
         UseWithProb(ImageGlare(70, 30), prob=prob),
         UseWithProb(RandomShadow(), prob=prob),
-        UseWithProb(RandomCrop(0.8), prob=prob),
         UseWithProb(HorizontalFlip(), prob=prob),
         UseWithProb(VerticalFlip(), prob=prob),
-        UseWithProb(Rotate(1), prob=prob),
-        Scale(size),
         Normalize(),
         MoveChannels(),
         ToTensor()
@@ -410,20 +426,10 @@ def get_train_transforms(size, prob=0.2):
     return transforms
 
 
-def get_val_transforms(size):
+def get_val_transforms(output_height, output_width):
     transforms = torchvision.transforms.Compose([
-        Scale(size),
-        Normalize(),
-        MoveChannels(),
-        ToTensor()
-    ])
-    return transforms
-
-
-def get_submission_transforms(size):
-    transforms = torchvision.transforms.Compose([
-        BMSFixTransform(),
-        Scale(size),
+        MakeHorizontal(),
+        RescalePaddingImage(output_height, output_width),
         Normalize(),
         MoveChannels(),
         ToTensor()
