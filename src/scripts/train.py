@@ -90,8 +90,7 @@ def val_loop(args, data_loader, encoder, decoder, criterion, tokenizer, max_seq_
 
 
 def get_loaders(args, data_csv):
-    data_csv_len = data_csv.shape[0] - 1
-    train_data_size = int(0.98*data_csv_len)
+    train_data_size = int(0.98 * len(data_csv))
     data_csv_train = data_csv.iloc[:train_data_size, :]
     data_csv_val = data_csv.iloc[train_data_size:, :]
     if args.train_dataset_len is not None:
@@ -164,7 +163,6 @@ def main(args):
     optimizer = torch.optim.Adam(params, lr=args.learning_rate)
 
     for epoch in range(args.num_epochs):
-        # Train the models
         train_loop(
             args, train_loader, encoder, decoder, criterion, optimizer, epoch)
         val_loop(args, val_loader, encoder, decoder, criterion, tokenizer, max_seq_length)
@@ -184,11 +182,11 @@ if __name__ == '__main__':
 
     # Model parameters
     parser.add_argument('--attention_dim', type=int, default=256,
-                        help='???')
+                        help='size of the attention network')
     parser.add_argument('--embed_dim', type=int, default=256,
-                        help='dimension ???')
+                        help='input size of embedding network')
     parser.add_argument('--decoder_dim', type=int, default=512,
-                        help='???')
+                        help='input size of decoder network')
     parser.add_argument('--dropout', type=float, default=0.5,
                         help='dropout rate')
 

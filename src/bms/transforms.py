@@ -364,6 +364,29 @@ class GaussNoise:
         return img
 
 
+class Transpose:
+    # https://github.com/albumentations-team/albumentations/blob/master/
+    # albumentations/augmentations/functional.py#L122
+    def __call__(self, img):
+        if len(img.shape) > 2:
+            return img.transpose(1, 0, 2)
+        return img.transpose(1, 0)
+
+
+class BMSFixTransform:
+    def __init__(self):
+        self.fix_transforms = torchvision.transforms.Compose([
+            Transpose(),
+            VerticalFlip()
+        ])
+
+    def __call__(self, img):
+        h, w, _ = img.shape
+        if h > w:
+            img = self.fix_transforms(img)
+        return img
+
+
 def get_train_transforms(size, prob=0.2):
     transforms = torchvision.transforms.Compose([
         UseWithProb(GaussNoise(20), prob=prob),
@@ -372,6 +395,7 @@ def get_train_transforms(size, prob=0.2):
             prob=prob
         ),
         UseWithProb(RandomGaussianBlur(max_ksize=3), prob=prob),
+        UseWithProb(Transpose(), prob=prob),
         UseWithProb(ImageGlare(70, 30), prob=prob),
         UseWithProb(RandomShadow(), prob=prob),
         UseWithProb(RandomCrop(0.8), prob=prob),
@@ -388,6 +412,17 @@ def get_train_transforms(size, prob=0.2):
 
 def get_val_transforms(size):
     transforms = torchvision.transforms.Compose([
+        Scale(size),
+        Normalize(),
+        MoveChannels(),
+        ToTensor()
+    ])
+    return transforms
+
+
+def get_submission_transforms(size):
+    transforms = torchvision.transforms.Compose([
+        BMSFixTransform(),
         Scale(size),
         Normalize(),
         MoveChannels(),

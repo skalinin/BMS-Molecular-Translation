@@ -1,13 +1,13 @@
 import torch
 from torch.utils.data import Dataset
-import pandas as pd
 import random
 import cv2
 
 
 def collate_fn(data):
     """
-    Get from https://github.com/yunjey/pytorch-tutorial/tree/master/tutorials/03-advanced/image_captioning
+    Get from https://github.com/yunjey/pytorch-tutorial/tree/master/
+        tutorials/03-advanced/image_captioning
 
     Creates mini-batch tensors from the list of tuples (image, caption).
 
@@ -43,7 +43,7 @@ class BMSDataset(Dataset):
     def __init__(self, data_csv, restrict_dataset_len=None, transform=None):
         super().__init__()
         self.transform = transform
-        self.data_csv_len = data_csv.shape[0] - 1
+        self.data_csv_len = len(data_csv)
         self.restrict_dataset_len = restrict_dataset_len
         self.image_paths = data_csv['image_path'].values
         self.inchi_text = data_csv['InChI_text'].values
@@ -56,7 +56,7 @@ class BMSDataset(Dataset):
 
     def __getitem__(self, idx):
         if self.restrict_dataset_len is not None:
-            idx = random.randint(0, self.data_csv_len)
+            idx = random.randint(0, self.data_csv_len-1)
         image_path = self.image_paths[idx]
         target = self.inchi_tokens[idx]
         text = self.inchi_text[idx]
@@ -66,3 +66,21 @@ class BMSDataset(Dataset):
 
         target = torch.Tensor(target)
         return image, target, text
+
+
+class BMSSumbissionDataset(Dataset):
+    def __init__(self, data_csv, transform=None):
+        super().__init__()
+        self.transform = transform
+        self.data_csv = data_csv
+        self.image_paths = data_csv['image_path'].values
+
+    def __len__(self):
+        return len(self.data_csv)
+
+    def __getitem__(self, idx):
+        image_path = self.image_paths[idx]
+        image = cv2.imread(image_path)
+        if self.transform is not None:
+            image = self.transform(image)
+        return image
