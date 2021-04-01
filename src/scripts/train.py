@@ -7,9 +7,10 @@ import argparse
 import time
 
 from bms.dataset import collate_fn, BMSDataset
-from bms.transforms import get_transforms
+from bms.transforms import get_train_transforms, get_val_transforms
 from bms.model import EncoderCNN, DecoderWithAttention
 from bms.metrics import AverageMeter, time_remain, get_score
+from bms.utils import load_pretrain_model
 
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -27,15 +28,16 @@ def train_loop(
         encoder.train()
 
     for i, (images, captions, lengths, _) in enumerate(data_loader):
+        decoder.zero_grad()
+        encoder.zero_grad()
         # Set mini-batch dataset
         images = images.to(DEVICE)
         captions = captions.to(DEVICE)
         # Forward, backward and optimize
         features = encoder(images)
-        predictions, caps_sorted, decode_lengths, _ = decoder(features, captions, lengths)
-
+        predictions, decode_lengths = decoder(features, captions, lengths)
         # Since we decoded starting with <start>, the targets are all words after <start>, up to <end>
-        targets = caps_sorted[:, 1:]
+        targets = captions[:, 1:]
         # Remove timesteps that we didn't decode at, or are pads
         # pack_padded_sequence is an easy trick to do this
         targets = pack_padded_sequence(targets, decode_lengths, batch_first=True)[0]
@@ -43,9 +45,9 @@ def train_loop(
         loss = criterion(outputs, targets)  # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
         loss_avg.update(loss.item(), args.batch_size)
 
-        decoder.zero_grad()
-        encoder.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(encoder.parameters(), 5)
+        torch.nn.utils.clip_grad_norm_(decoder.parameters(), 5)
         optimizer.step()
         # Print log info
         if i % args.log_step == 0:
@@ -65,7 +67,6 @@ def train_loop(
 
 
 def val_loop(args, data_loader, encoder, decoder, criterion, tokenizer, max_seq_length):
-    loss_avg = AverageMeter()
     acc_avg = AverageMeter()
     if decoder.training:
         decoder.eval()
@@ -82,15 +83,10 @@ def val_loop(args, data_loader, encoder, decoder, criterion, tokenizer, max_seq_
             features = encoder(images)
             predictions = decoder.predict(features, max_seq_length, tokenizer)
         predicted_sequence = torch.argmax(predictions.detach().cpu(), -1).numpy()
-            # targets = pack_padded_sequence(captions, decode_lengths, batch_first=True)[0]
-            # outputs = pack_padded_sequence(predictions, decode_lengths, batch_first=True)[0]
-            # loss = criterion(outputs, targets)
         text_preds = tokenizer.predict_captions(predicted_sequence)
         acc_avg.update(get_score(text_true, text_preds), args.batch_size)
-        # loss_avg.update(loss.item(), args.batch_size)
     # Print log info
     print('Val step Acc: {:.4f}'.format(acc_avg.avg))
-         # loss_avg.avg, acc_avg.avg))
 
 
 def get_loaders(args, data_csv):
@@ -98,9 +94,14 @@ def get_loaders(args, data_csv):
     train_data_size = int(0.98*data_csv_len)
     data_csv_train = data_csv.iloc[:train_data_size, :]
     data_csv_val = data_csv.iloc[train_data_size:, :]
+    if args.train_dataset_len is not None:
+        print(f'Train dataset len: {args.train_dataset_len}')
+    else:
+        print(f'Train dataset len: {data_csv_train.shape[0]}')
+    print(f'Train dataset len: {data_csv_val.shape[0]}')
 
-    train_transform = get_transforms((224, 224))
-    val_transform = get_transforms((224, 224))
+    train_transform = get_train_transforms((224, 224))
+    val_transform = get_val_transforms((224, 224))
     train_dataset = BMSDataset(
         data_csv=data_csv_train,
         restrict_dataset_len=args.train_dataset_len,
@@ -137,7 +138,12 @@ def main(args):
     train_loader, val_loader = get_loaders(args, data_csv)
 
     # Build the models
-    encoder = EncoderCNN().to(DEVICE)
+    encoder = EncoderCNN()
+    if args.encoder_pretrain:
+        states = torch.load(args.encoder_pretrain, map_location=DEVICE)
+        encoder.load_state_dict(states)
+        print('Load pretrained encoder')
+    encoder.to(DEVICE)
     decoder = DecoderWithAttention(
         attention_dim=args.attention_dim,
         embed_dim=args.embed_dim,
@@ -145,7 +151,12 @@ def main(args):
         vocab_size=len(tokenizer),
         device=DEVICE,
         dropout=args.dropout,
-    ).to(DEVICE)
+    )
+    if args.decoder_pretrain:
+        states = load_pretrain_model(args.decoder_pretrain, decoder, DEVICE)
+        decoder.load_state_dict(states)
+        print('Load pretrained decoder')
+    decoder.to(DEVICE)
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss()
@@ -166,13 +177,17 @@ if __name__ == '__main__':
                         help='path for saving trained models')
     parser.add_argument('--log_step', type=int, default=500,
                         help='step size for prining log info')
+    parser.add_argument('--encoder_pretrain', type=str, default='',
+                        help='encoder pretrain path')
+    parser.add_argument('--decoder_pretrain', type=str, default='',
+                        help='decoder pretrain path')
 
     # Model parameters
     parser.add_argument('--attention_dim', type=int, default=256,
                         help='???')
     parser.add_argument('--embed_dim', type=int, default=256,
                         help='dimension ???')
-    parser.add_argument('--decoder_dim', type=int, default=523,
+    parser.add_argument('--decoder_dim', type=int, default=512,
                         help='???')
     parser.add_argument('--dropout', type=float, default=0.5,
                         help='dropout rate')
