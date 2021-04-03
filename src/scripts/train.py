@@ -1,40 +1,35 @@
 import torch
 from torch.nn.utils.rnn import pack_padded_sequence
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau
 import torch.nn as nn
 import pandas as pd
 import os
 import argparse
-import time
 
 from bms.dataset import collate_fn, BMSDataset
 from bms.transforms import get_train_transforms, get_val_transforms
 from bms.model import EncoderCNN, DecoderWithAttention
-from bms.metrics import AverageMeter, time_remain, get_score
+from bms.metrics import AverageMeter, get_score
 from bms.utils import load_pretrain_model
 
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def train_loop(
-    args, data_loader, encoder, decoder, criterion, optimizer, epoch, scheduler
-):
-    total_step = len(data_loader)
+def train_loop(args, data_loader, encoder, decoder, criterion, optimizer):
     loss_avg = AverageMeter()
-    start = time.time()
     if not decoder.training:
         decoder.train()
     if not encoder.training:
         encoder.train()
 
-    for i, (images, captions, lengths, _) in enumerate(data_loader):
+    for images, captions, lengths, _ in data_loader:
         decoder.zero_grad()
         encoder.zero_grad()
-        # Set mini-batch dataset
+
         images = images.to(DEVICE)
         captions = captions.to(DEVICE)
-        # Forward, backward and optimize
+
         features = encoder(images)
         predictions, decode_lengths = decoder(features, captions, lengths)
         # Since we decoded starting with <start>, the targets are all words after <start>, up to <end>
@@ -44,28 +39,16 @@ def train_loop(
         targets = pack_padded_sequence(targets, decode_lengths, batch_first=True)[0]
         outputs = pack_padded_sequence(predictions, decode_lengths, batch_first=True)[0]
         loss = criterion(outputs, targets)  # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
-        loss_avg.update(loss.item(), args.batch_size)
 
+        loss_avg.update(loss.item(), args.batch_size)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(encoder.parameters(), 5)
         torch.nn.utils.clip_grad_norm_(decoder.parameters(), 5)
         optimizer.step()
-        # Print log info
-        if i % args.log_step == 0 and i > 0:
-            print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}, Time: {}'
-                  .format(epoch, args.num_epochs, i, total_step, loss_avg.avg,
-                          time_remain(start, (i+1)/total_step)))
-    # Save the model checkpoints
-    scheduler.step()
-    torch.save(decoder.state_dict(), os.path.join(
-        args.model_path,
-        'decoder-{}-{:.4f}.ckpt'.format(epoch+1, loss_avg.avg)))
-    torch.save(encoder.state_dict(), os.path.join(
-        args.model_path,
-        'encoder-{}-{:.4f}.ckpt'.format(epoch+1, loss_avg.avg)))
+    return loss_avg.avg
 
 
-def val_loop(args, data_loader, encoder, decoder, criterion, tokenizer, max_seq_length):
+def val_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
     acc_avg = AverageMeter()
     if decoder.training:
         decoder.eval()
@@ -73,19 +56,15 @@ def val_loop(args, data_loader, encoder, decoder, criterion, tokenizer, max_seq_
         encoder.eval()
 
     for i, (images, captions, lengths, text_true) in enumerate(data_loader):
-        # Set mini-batch dataset
         images = images.to(DEVICE)
         captions = captions.to(DEVICE)
-        # targets = pack_padded_sequence(captions, lengths, batch_first=True)[0]
-        # Forward
         with torch.no_grad():
             features = encoder(images)
             predictions = decoder.predict(features, max_seq_length, tokenizer)
         predicted_sequence = torch.argmax(predictions.detach().cpu(), -1).numpy()
         text_preds = tokenizer.predict_captions(predicted_sequence)
         acc_avg.update(get_score(text_true, text_preds), args.batch_size)
-    # Print log info
-    print('Val step Acc: {:.4f}'.format(acc_avg.avg))
+    return acc_avg.avg
 
 
 def get_loaders(args, data_csv):
@@ -160,13 +139,27 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
     params = list(decoder.parameters()) + list(encoder.parameters())
     optimizer = torch.optim.Adam(params, lr=args.learning_rate)
-    scheduler = CosineAnnealingLR(optimizer, T_max=8, eta_min=1e-05)
+    scheduler = ReduceLROnPlateau(optimizer, factor=0.7, patience=3,
+                                  threshold=0.001)
+    for epoch in range(10000):
+        loss_avg = train_loop(args, train_loader, encoder, decoder, criterion,
+                              optimizer)
+        for param_group in optimizer.param_groups:
+            lr = param_group['lr']
+        print('Epoch {}, Loss: {:.4f}, LR: {:.7f}'.format(epoch, loss_avg, lr))
 
-    for epoch in range(args.num_epochs):
-        train_loop(args, train_loader, encoder, decoder, criterion, optimizer,
-                   epoch, scheduler)
-        val_loop(args, val_loader, encoder, decoder, criterion, tokenizer,
-                 max_seq_length)
+        scheduler.step(loss_avg)
+
+        if epoch % args.val_step == 0 and epoch > 0:
+            acc_avg = val_loop(args, val_loader, encoder, decoder, tokenizer,
+                               max_seq_length)
+            print('Val step Acc: {:.4f}'.format(acc_avg))
+            torch.save(decoder.state_dict(), os.path.join(
+                args.model_path,
+                'decoder-{}-{:.4f}.ckpt'.format(epoch, acc_avg)))
+            torch.save(encoder.state_dict(), os.path.join(
+                args.model_path,
+                'encoder-{}-{:.4f}.ckpt'.format(epoch, acc_avg)))
 
 
 if __name__ == '__main__':
@@ -174,8 +167,9 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str,
                         default='/workdir/data/experiments/test/',
                         help='path for saving trained models')
-    parser.add_argument('--log_step', type=int, default=500,
-                        help='step size for prining log info')
+    parser.add_argument('--val_step', type=int, default=8,
+                        help='step size for validation')
+
     parser.add_argument('--encoder_pretrain', type=str, default='',
                         help='encoder pretrain path')
     parser.add_argument('--decoder_pretrain', type=str, default='',
@@ -195,9 +189,8 @@ if __name__ == '__main__':
     parser.add_argument('--dropout', type=float, default=0.5,
                         help='dropout rate')
 
-    parser.add_argument('--num_epochs', type=int, default=100)
-    parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--train_dataset_len', type=int, default=300000)
+    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--train_dataset_len', type=int, default=50000)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     args = parser.parse_args()
