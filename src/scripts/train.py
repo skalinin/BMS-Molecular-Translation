@@ -139,7 +139,7 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
     params = list(decoder.parameters()) + list(encoder.parameters())
     optimizer = torch.optim.Adam(params, lr=args.learning_rate)
-    scheduler = ReduceLROnPlateau(optimizer, factor=0.7, patience=3,
+    scheduler = ReduceLROnPlateau(optimizer, factor=0.7, patience=5,
                                   threshold=0.001)
     for epoch in range(10000):
         loss_avg = train_loop(args, train_loader, encoder, decoder, criterion,
@@ -167,16 +167,16 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str,
                         default='/workdir/data/experiments/test/',
                         help='path for saving trained models')
-    parser.add_argument('--val_step', type=int, default=8,
+    parser.add_argument('--val_step', type=int, default=10,
                         help='step size for validation')
 
     parser.add_argument('--encoder_pretrain', type=str, default='',
                         help='encoder pretrain path')
     parser.add_argument('--decoder_pretrain', type=str, default='',
                         help='decoder pretrain path')
-    parser.add_argument('--output_height', type=int, default=150,
+    parser.add_argument('--output_height', type=int, default=224,
                         help='Height of images in dataset')
-    parser.add_argument('--output_width', type=int, default=300,
+    parser.add_argument('--output_width', type=int, default=224,
                         help='Max width of images in dataset')
 
     # Model parameters

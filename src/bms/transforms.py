@@ -121,19 +121,6 @@ def img_size(image: np.ndarray):
     return image.shape[1], image.shape[0]
 
 
-def grayscale_handle(image, check, gray_img=False):
-    if check:
-        gray_img = False
-        if len(image.shape) == 2:
-            image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-            gray_img = True
-        return image, gray_img
-    else:
-        if gray_img:
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        return image
-
-
 def random_crop(img, size):
     tw = size[0]
     th = size[1]
@@ -158,7 +145,6 @@ class RandomShadow:
         pass
 
     def __call__(self, image, mask=None):
-        image, gray_img = grayscale_handle(image, True)
         row, col, ch = image.shape
         # We take a random point at the top for the x coordinate and then
         # another random x-coordinate at the bottom and join them to create
@@ -186,7 +172,6 @@ class RandomShadow:
 
         image = satur_img(image)
         image = image.astype(np.uint8)
-        image = grayscale_handle(image, False, gray_img)
 
         if mask is not None:
             return image, mask
@@ -200,7 +185,6 @@ class ImageGlare:
         self.glare_deviation = glare_deviation
 
     def __call__(self, img, mask=None):
-        img, gray_img = grayscale_handle(img, True)
         self.glare_bright = int(random.gauss(
             self.glare_mean,
             self.glare_deviation)
@@ -234,7 +218,6 @@ class ImageGlare:
 
                 img_glare = satur_img(img_glare)
                 img_glare = img_glare.astype(np.uint8)
-                img_glare = grayscale_handle(img_glare, False, gray_img)
 
                 if mask is not None:
                     return img_glare, mask
@@ -256,13 +239,10 @@ class RandomGaussianBlur:
         self.sigma_x = sigma_x
 
     def __call__(self, image, mask=None):
-        image, gray_img = grayscale_handle(image, True)
         kernal_size = (1, 1)
         while kernal_size == (1, 1):
             kernal_size = tuple(2 * np.random.randint(0, self.max_ksize, 2) + 1)
         blured_image = cv2.GaussianBlur(image, kernal_size, self.sigma_x)
-
-        blured_image = grayscale_handle(blured_image, False, gray_img)
 
         if mask is None:
             return blured_image
@@ -312,8 +292,6 @@ class RandomTransform(object):
                 self.n_vert = 4
 
     def __call__(self, img, mask=None):
-        img, gray_img = grayscale_handle(img, True)
-
         if self.n_vert is not None:
             self.n_vert_rnd = np.random.randint(3, self.n_vert)
             bright_f = random.randint(0, 3 * self.bright)  # Brightness
@@ -329,7 +307,6 @@ class RandomTransform(object):
         img = gauss_noise(img, random.uniform(0, self.sigma_squared))
         img = satur_img(img)
         img = np.uint8(img)
-        img = grayscale_handle(img, False, gray_img)
 
         if mask is None:
             return img
@@ -350,8 +327,6 @@ class GaussNoise:
         return img, mask
 
     def _gauss_noise(self, img, sigma_sq):
-        img, gray_img = grayscale_handle(img, True)
-
         img = img.astype(np.uint32)
         h, w, c = img.shape
         gauss = np.random.normal(0, sigma_sq, (h, w))
@@ -359,8 +334,6 @@ class GaussNoise:
         img = img + np.stack([gauss for i in range(c)], axis=2)
         img = satur_img(img)
         img = img.astype(np.uint8)
-
-        img = grayscale_handle(img, False, gray_img)
         return img
 
 
@@ -408,7 +381,7 @@ def get_train_transforms(output_height, output_width, prob=0.2):
     transforms = torchvision.transforms.Compose([
         MakeHorizontal(),
         UseWithProb(RandomCrop(0.8), prob=prob),
-        RescalePaddingImage(output_height, output_width),
+        Scale((output_height, output_width)),
         UseWithProb(GaussNoise(20), prob=prob),
         UseWithProb(
             RandomTransform(contr=0.5, bright=30, sigma_squared=20, n_vert=15),
@@ -429,7 +402,7 @@ def get_train_transforms(output_height, output_width, prob=0.2):
 def get_val_transforms(output_height, output_width):
     transforms = torchvision.transforms.Compose([
         MakeHorizontal(),
-        RescalePaddingImage(output_height, output_width),
+        Scale((output_height, output_width)),
         Normalize(),
         MoveChannels(),
         ToTensor()

@@ -98,9 +98,9 @@ if __name__ == '__main__':
                         help='input size of decoder network')
     parser.add_argument('--dropout', type=float, default=0.5,
                         help='dropout rate')
-    parser.add_argument('--output_height', type=int, default=150,
+    parser.add_argument('--output_height', type=int, default=224,
                         help='Height of images in dataset')
-    parser.add_argument('--output_width', type=int, default=300,
+    parser.add_argument('--output_width', type=int, default=224,
                         help='Max width of images in dataset')
 
     parser.add_argument('--submission_path', type=str,
