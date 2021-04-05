@@ -77,7 +77,8 @@ def get_loaders(args, data_csv):
         print(f'Train dataset len: {data_csv_train.shape[0]}')
     print(f'Train dataset len: {data_csv_val.shape[0]}')
 
-    train_transform = get_train_transforms(args.output_height, args.output_width)
+    train_transform = get_train_transforms(
+        args.output_height, args.output_width, args.transf_prob)
     val_transform = get_val_transforms(args.output_height, args.output_width)
     train_dataset = BMSDataset(
         data_csv=data_csv_train,
@@ -139,8 +140,7 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
     params = list(decoder.parameters()) + list(encoder.parameters())
     optimizer = torch.optim.Adam(params, lr=args.learning_rate)
-    scheduler = ReduceLROnPlateau(optimizer, factor=0.7, patience=5,
-                                  threshold=0.001)
+    scheduler = ReduceLROnPlateau(optimizer, factor=0.7, patience=8)
     for epoch in range(10000):
         loss_avg = train_loop(args, train_loader, encoder, decoder, criterion,
                               optimizer)
@@ -193,5 +193,6 @@ if __name__ == '__main__':
     parser.add_argument('--train_dataset_len', type=int, default=50000)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=0.001)
+    parser.add_argument('--transf_prob', type=float, default=0.5)
     args = parser.parse_args()
     main(args)

@@ -60,16 +60,27 @@ class UseWithProb:
         return image
 
 
-class Rotate:
-    def __init__(self, n):
-        self.n = n
+class RandomRotate:
+    def __call__(self, img):
+        return img_rotate90(img, k=random.randint(1, 3))
 
-    def __call__(self, img, mask=None):
-        img = np.rot90(img, k=self.n)
-        if mask is not None:
-            mask = np.rot90(mask, k=self.n)
-            return img, mask
-        return img
+
+def img_rotate90(img, k=1):
+    """Rotate image.
+
+    np.rot90() corrupts an opencv image
+    https://stackoverflow.com/questions/20843544/np-rot90-corrupts-an-opencv-image
+    https://github.com/opencv/opencv/issues/18120
+    np.rot90 works a lot faster then cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    but .copy() workaround slow down np-realization to 4-5 times, so use cv2.rotate instead
+    """
+    assert k in [1, 2, 3], "k must be 1, 2 or 3"
+
+    if k == 1:
+        return cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    elif k == 2:
+        return cv2.rotate(img, cv2.ROTATE_180)
+    return cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)  # 270
 
 
 class Flip(object):
@@ -347,13 +358,10 @@ class Transpose:
 
 
 class MakeHorizontal:
-    def __init__(self):
-        self.rotate = Rotate(1)
-
     def __call__(self, img):
         h, w, _ = img.shape
         if h > w:
-            img = self.rotate(img)
+            img = img_rotate90(img)
         return img
 
 
@@ -377,19 +385,17 @@ class RescalePaddingImage:
         return image
 
 
-def get_train_transforms(output_height, output_width, prob=0.2):
+def get_train_transforms(output_height, output_width, prob):
     transforms = torchvision.transforms.Compose([
-        MakeHorizontal(),
         UseWithProb(RandomCrop(0.8), prob=prob),
         Scale((output_height, output_width)),
+        UseWithProb(RandomRotate(), prob=prob),
         UseWithProb(GaussNoise(20), prob=prob),
         UseWithProb(
             RandomTransform(contr=0.5, bright=30, sigma_squared=20, n_vert=15),
             prob=prob
         ),
         UseWithProb(RandomGaussianBlur(max_ksize=3), prob=prob),
-        UseWithProb(ImageGlare(70, 30), prob=prob),
-        UseWithProb(RandomShadow(), prob=prob),
         UseWithProb(HorizontalFlip(), prob=prob),
         UseWithProb(VerticalFlip(), prob=prob),
         Normalize(),
