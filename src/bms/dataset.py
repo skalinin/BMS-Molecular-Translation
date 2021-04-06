@@ -3,6 +3,41 @@ from torch.utils.data import Dataset
 import random
 import cv2
 
+from bms.base_sampler import BaseSampler
+
+
+def medium_sequence_sampler(folder_name, sample_len):
+    if sample_len < 170:
+        return True
+    return False
+
+
+def long_sequence_sampler(folder_name, sample_len):
+    if sample_len >= 170:
+        return True
+    return False
+
+
+BATCHFOLDER_FUNC = {
+    "medium_sequence": medium_sequence_sampler,
+    "long_sequence": long_sequence_sampler,
+}
+
+
+class SequentialSampler(BaseSampler):
+    def __init__(self, dataset, folder2freq, dataset_len):
+        super().__init__(dataset, folder2freq, BATCHFOLDER_FUNC, dataset_len)
+
+    def _sample2folder(self):
+        """Define folder-name for each sample in dataset."""
+        samples_lengths = self.dataset['InChI_index_len'].values
+        sample2folder = []
+        for sample_len in samples_lengths:
+            sample2folder.append(
+                self._apply_batchfolder_func(sample_len)
+            )
+        return sample2folder
+
 
 def collate_fn(data):
     """
@@ -40,23 +75,18 @@ def collate_fn(data):
 
 
 class BMSDataset(Dataset):
-    def __init__(self, data_csv, restrict_dataset_len=None, transform=None):
+    def __init__(self, data_csv, transform=None):
         super().__init__()
         self.transform = transform
         self.data_csv_len = len(data_csv)
-        self.restrict_dataset_len = restrict_dataset_len
         self.image_paths = data_csv['image_path'].values
         self.inchi_text = data_csv['InChI_text'].values
         self.inchi_tokens = data_csv['InChI_index'].values
 
     def __len__(self):
-        if self.restrict_dataset_len is not None:
-            return self.restrict_dataset_len
         return self.data_csv_len
 
     def __getitem__(self, idx):
-        if self.restrict_dataset_len is not None:
-            idx = random.randint(0, self.data_csv_len-1)
         image_path = self.image_paths[idx]
         target = self.inchi_tokens[idx]
         text = self.inchi_text[idx]

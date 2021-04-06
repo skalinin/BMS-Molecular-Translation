@@ -38,7 +38,7 @@ def test_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
 def main(args):
     data_csv = pd.read_pickle(
         '/workdir/data/processed/train_labels_processed.pkl')
-    max_seq_length = data_csv['InChI_index'].map(len).max()
+    max_seq_length = data_csv['InChI_index_len'].max()
 
     test_csv = pd.read_csv(
         '/workdir/data/bms-molecular-translation/sample_submission.csv')

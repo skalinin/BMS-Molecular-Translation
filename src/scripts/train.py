@@ -5,20 +5,28 @@ import torch.nn as nn
 import numpy as np
 import pandas as pd
 import os
+import time
 import argparse
 
-from bms.dataset import collate_fn, BMSDataset
+from bms.dataset import collate_fn, BMSDataset, SequentialSampler
 from bms.transforms import get_train_transforms, get_val_transforms
 from bms.model import EncoderCNN, DecoderWithAttention
-from bms.metrics import AverageMeter, get_score
+from bms.metrics import AverageMeter, get_score, sec2min
 from bms.utils import load_pretrain_model
 
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
+FOLDER_2_FREQ = {
+    "medium_sequence": 4,
+    "long_sequence": 1,
+}
+
+
 def train_loop(args, data_loader, encoder, decoder, criterion, optimizer):
     loss_avg = AverageMeter()
+    strat_time = time.time()
     if not decoder.training:
         decoder.train()
     if not encoder.training:
@@ -46,11 +54,13 @@ def train_loop(args, data_loader, encoder, decoder, criterion, optimizer):
         torch.nn.utils.clip_grad_norm_(encoder.parameters(), 5)
         torch.nn.utils.clip_grad_norm_(decoder.parameters(), 5)
         optimizer.step()
-    return loss_avg.avg
+    loop_time = sec2min(time.time() - strat_time)
+    return loss_avg.avg, loop_time
 
 
 def val_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
     acc_avg = AverageMeter()
+    strat_time = time.time()
     if decoder.training:
         decoder.eval()
     if encoder.training:
@@ -65,33 +75,41 @@ def val_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
         predicted_sequence = torch.argmax(predictions.detach().cpu(), -1).numpy()
         text_preds = tokenizer.predict_captions(predicted_sequence)
         acc_avg.update(get_score(text_true, text_preds), args.batch_size)
-    return acc_avg.avg
+    loop_time = sec2min(time.time() - strat_time)
+    return acc_avg.avg, loop_time
 
 
 def get_loaders(args, data_csv):
+    # create train dataset and dataloader
     train_data_size = int(0.98 * len(data_csv))
     data_csv_train = data_csv.iloc[:train_data_size, :]
-    data_csv_val = data_csv.iloc[train_data_size:, :]
-    if args.train_dataset_len is not None:
-        print(f'Train dataset len: {args.train_dataset_len}')
+    if args.epoch_size is not None:
+        print(f'Train dataset len: {args.epoch_size}')
     else:
         print(f'Train dataset len: {data_csv_train.shape[0]}')
-    print(f'Val dataset len: {data_csv_val.shape[0]}')
 
     train_transform = get_train_transforms(
         args.output_height, args.output_width, args.transf_prob)
-    val_transform = get_val_transforms(args.output_height, args.output_width)
     train_dataset = BMSDataset(
         data_csv=data_csv_train,
-        restrict_dataset_len=args.train_dataset_len,
         transform=train_transform
     )
+    # create train dataloader with custom batch_sampler
+    sampler = SequentialSampler(data_csv_train, FOLDER_2_FREQ, args.epoch_size)
+    batcher = torch.utils.data.BatchSampler(
+        sampler, batch_size=args.batch_size, drop_last=True)
     train_loader = torch.utils.data.DataLoader(
         dataset=train_dataset,
-        batch_size=args.batch_size,
+        batch_sampler=batcher,
+        prefetch_factor=args.prefetch_factor,
         num_workers=args.num_workers,
         collate_fn=collate_fn
     )
+
+    # create val dataset and dataloader
+    data_csv_val = data_csv.iloc[train_data_size:, :]
+    print(f'Val dataset len: {data_csv_val.shape[0]}')
+    val_transform = get_val_transforms(args.output_height, args.output_width)
     val_dataset = BMSDataset(
         data_csv=data_csv_val,
         transform=val_transform
@@ -107,7 +125,7 @@ def get_loaders(args, data_csv):
 
 def main(args):
     data_csv = pd.read_pickle('/workdir/data/processed/train_labels_processed.pkl')
-    max_seq_length = data_csv['InChI_index'].map(len).max()
+    max_seq_length = data_csv['InChI_index_len'].max()
 
     # Create model directory
     if not os.path.exists(args.model_path):
@@ -149,19 +167,20 @@ def main(args):
     saved_weights_paths = []
 
     for epoch in range(10000):
-        loss_avg = train_loop(args, train_loader, encoder, decoder, criterion,
-                              optimizer)
+        loss_avg, loop_time = train_loop(args, train_loader, encoder, decoder,
+                                         criterion, optimizer)
         for param_group in optimizer.param_groups:
             lr = param_group['lr']
-        print('Epoch {}, Loss: {:.4f}, LR: {:.7f}'.format(epoch, loss_avg, lr))
+        print('Epoch {}, Loss: {:.4f}, LR: {:.7f}, loop_time: {}'.format(
+            epoch, loss_avg, lr, loop_time))
 
         scheduler.step(loss_avg)
 
         if loss_avg < best_loss * (1. - loss_threshold_to_validate):
             best_loss = loss_avg
-            acc_avg = val_loop(args, val_loader, encoder, decoder, tokenizer,
-                               max_seq_length)
-            print('Val step Acc: {:.4f}'.format(acc_avg))
+            acc_avg, loop_time = val_loop(args, val_loader, encoder, decoder,
+                                          tokenizer, max_seq_length)
+            print('Val step Acc: {:.4f}, loop_time: {}'.format(acc_avg, loop_time))
             if acc_avg < best_acc:
                 best_acc = acc_avg
                 print('Val weights saved')
@@ -211,9 +230,10 @@ if __name__ == '__main__':
                         help='dropout rate')
 
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--train_dataset_len', type=int, default=50000)
+    parser.add_argument('--epoch_size', type=int, default=50000)
+    parser.add_argument('--prefetch_factor', type=int, default=4)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=0.001)
-    parser.add_argument('--transf_prob', type=float, default=0.5)
+    parser.add_argument('--transf_prob', type=float, default=0.25)
     args = parser.parse_args()
     main(args)

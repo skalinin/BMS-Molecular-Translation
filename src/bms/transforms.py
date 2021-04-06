@@ -387,7 +387,7 @@ class RescalePaddingImage:
 
 def get_train_transforms(output_height, output_width, prob):
     transforms = torchvision.transforms.Compose([
-        UseWithProb(RandomCrop(0.8), prob=prob),
+        UseWithProb(RandomCrop(0.85), prob=prob),
         Scale((output_height, output_width)),
         UseWithProb(RandomRotate(), prob=prob),
         UseWithProb(GaussNoise(20), prob=prob),
