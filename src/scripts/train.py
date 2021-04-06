@@ -1,7 +1,8 @@
 import torch
 from torch.nn.utils.rnn import pack_padded_sequence
-from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torch.nn as nn
+import numpy as np
 import pandas as pd
 import os
 import argparse
@@ -75,7 +76,7 @@ def get_loaders(args, data_csv):
         print(f'Train dataset len: {args.train_dataset_len}')
     else:
         print(f'Train dataset len: {data_csv_train.shape[0]}')
-    print(f'Train dataset len: {data_csv_val.shape[0]}')
+    print(f'Val dataset len: {data_csv_val.shape[0]}')
 
     train_transform = get_train_transforms(
         args.output_height, args.output_width, args.transf_prob)
@@ -140,7 +141,13 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
     params = list(decoder.parameters()) + list(encoder.parameters())
     optimizer = torch.optim.Adam(params, lr=args.learning_rate)
-    scheduler = ReduceLROnPlateau(optimizer, factor=0.7, patience=8)
+    scheduler = ReduceLROnPlateau(optimizer, factor=0.7, patience=15)
+
+    best_loss = np.inf if args.best_loss is None else args.best_loss
+    loss_threshold_to_validate = 0.025
+    best_acc = np.inf
+    saved_weights_paths = []
+
     for epoch in range(10000):
         loss_avg = train_loop(args, train_loader, encoder, decoder, criterion,
                               optimizer)
@@ -150,16 +157,31 @@ def main(args):
 
         scheduler.step(loss_avg)
 
-        if epoch % args.val_step == 0 and epoch > 0:
+        if loss_avg < best_loss * (1. - loss_threshold_to_validate):
+            best_loss = loss_avg
             acc_avg = val_loop(args, val_loader, encoder, decoder, tokenizer,
                                max_seq_length)
             print('Val step Acc: {:.4f}'.format(acc_avg))
-            torch.save(decoder.state_dict(), os.path.join(
-                args.model_path,
-                'decoder-{}-{:.4f}.ckpt'.format(epoch, acc_avg)))
-            torch.save(encoder.state_dict(), os.path.join(
-                args.model_path,
-                'encoder-{}-{:.4f}.ckpt'.format(epoch, acc_avg)))
+            if acc_avg < best_acc:
+                best_acc = acc_avg
+                print('Val weights saved')
+                encoder_save_path = os.path.join(
+                    args.model_path,
+                    'encoder-{}-{:.4f}.ckpt'.format(epoch, acc_avg))
+                decoder_save_path = os.path.join(
+                    args.model_path,
+                    'decoder-{}-{:.4f}.ckpt'.format(epoch, acc_avg))
+                torch.save(encoder.state_dict(), encoder_save_path)
+                torch.save(decoder.state_dict(), decoder_save_path)
+                saved_weights_paths.append(
+                    (encoder_save_path, decoder_save_path)
+                )
+                if len(saved_weights_paths) > 3:
+                    old_weights_paths = saved_weights_paths.pop(0)
+                    for old_weights_path in old_weights_paths:
+                        if os.path.exists(old_weights_path):
+                            os.remove(old_weights_path)
+                            print(f"Model removed '{old_weights_path}'")
 
 
 if __name__ == '__main__':
@@ -167,9 +189,8 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str,
                         default='/workdir/data/experiments/test/',
                         help='path for saving trained models')
-    parser.add_argument('--val_step', type=int, default=10,
-                        help='step size for validation')
-
+    parser.add_argument('--best_loss', type=float, default=None,
+                        help='only validate if get lesser loss')
     parser.add_argument('--encoder_pretrain', type=str, default='',
                         help='encoder pretrain path')
     parser.add_argument('--decoder_pretrain', type=str, default='',
