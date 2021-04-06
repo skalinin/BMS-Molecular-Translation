@@ -162,7 +162,7 @@ def main(args):
     scheduler = ReduceLROnPlateau(optimizer, factor=0.7, patience=15)
 
     best_loss = np.inf if args.best_loss is None else args.best_loss
-    loss_threshold_to_validate = 0.025
+    loss_threshold_to_validate = args.loss_threshold_to_validate
     best_acc = np.inf
     saved_weights_paths = []
 
@@ -208,6 +208,8 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str,
                         default='/workdir/data/experiments/test/',
                         help='path for saving trained models')
+    parser.add_argument('--loss_threshold_to_validate', type=float, default=0.01,
+                        help='only validate if get lesser loss')
     parser.add_argument('--best_loss', type=float, default=None,
                         help='only validate if get lesser loss')
     parser.add_argument('--encoder_pretrain', type=str, default='',
