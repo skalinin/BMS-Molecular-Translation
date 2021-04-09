@@ -20,9 +20,15 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 FOLDER_2_FREQ = {
-    "medium_sequence": 4,
-    "long_sequence": 1,
+    "very_short_sequence": 1,  # 48% -> 25%
+    "short_sequence": 1,  # 35% -> 25%
+    "medium_sequence": 0.5,  # 8.5% -> 12,5%
+    "long_sequence": 0.75,  # 5.2% -> 19%
+    "very_long_sequence": 0.5,  # 1.5% -> 12,5%
+    "tremendously_long_sequence": 0.25  # 0.3% -> 6%
 }
+
+SCALER = torch.cuda.amp.GradScaler()
 
 
 def train_loop(args, data_loader, encoder, decoder, criterion, optimizer):
@@ -40,21 +46,23 @@ def train_loop(args, data_loader, encoder, decoder, criterion, optimizer):
         images = images.to(DEVICE)
         captions = captions.to(DEVICE)
 
-        features = encoder(images)
-        predictions, decode_lengths = decoder(features, captions, lengths)
-        # Since we decoded starting with <start>, the targets are all words after <start>, up to <end>
-        targets = captions[:, 1:]
-        # Remove timesteps that we didn't decode at, or are pads
-        # pack_padded_sequence is an easy trick to do this
-        targets = pack_padded_sequence(targets, decode_lengths, batch_first=True)[0]
-        outputs = pack_padded_sequence(predictions, decode_lengths, batch_first=True)[0]
-        loss = criterion(outputs, targets)  # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
+        with torch.cuda.amp.autocast():
+            features = encoder(images)
+            predictions, decode_lengths = decoder(features, captions, lengths)
+            # Since we decoded starting with <start>, the targets are all words after <start>, up to <end>
+            targets = captions[:, 1:]
+            # Remove timesteps that we didn't decode at, or are pads
+            # pack_padded_sequence is an easy trick to do this
+            targets = pack_padded_sequence(targets, decode_lengths, batch_first=True)[0]
+            outputs = pack_padded_sequence(predictions, decode_lengths, batch_first=True)[0]
+            loss = criterion(outputs, targets)  # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
 
         loss_avg.update(loss.item(), args.batch_size)
-        loss.backward()
+        SCALER.scale(loss).backward()
         torch.nn.utils.clip_grad_norm_(encoder.parameters(), 5)
         torch.nn.utils.clip_grad_norm_(decoder.parameters(), 5)
-        optimizer.step()
+        SCALER.step(optimizer)
+        SCALER.update()
     loop_time = sec2min(time.time() - strat_time)
     return loss_avg.avg, loop_time
 
@@ -70,9 +78,10 @@ def val_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
     for i, (images, captions, lengths, text_true) in enumerate(data_loader):
         images = images.to(DEVICE)
         captions = captions.to(DEVICE)
-        with torch.no_grad():
-            features = encoder(images)
-            predictions = decoder.predict(features, max_seq_length, tokenizer)
+        with torch.cuda.amp.autocast():
+            with torch.no_grad():
+                features = encoder(images)
+                predictions = decoder.predict(features, max_seq_length, tokenizer)
         predicted_sequence = torch.argmax(predictions.detach().cpu(), -1).numpy()
         text_preds = tokenizer.predict_captions(predicted_sequence)
         acc_avg.update(get_score(text_true, text_preds), args.batch_size)
@@ -103,7 +112,6 @@ def get_loaders(args, model_config, data_csv):
     train_loader = torch.utils.data.DataLoader(
         dataset=train_dataset,
         batch_sampler=batcher,
-        prefetch_factor=args.prefetch_factor,
         num_workers=args.num_workers,
         collate_fn=collate_fn
     )
@@ -167,7 +175,7 @@ def main(args):
     optimizer = torch.optim.Adam(params, lr=args.learning_rate)
     scheduler = ReduceLROnPlateau(optimizer, factor=0.7, patience=15)
 
-    best_loss = np.inf if args.best_loss is None else args.best_loss
+    best_loss = np.inf
     best_acc = np.inf
     saved_weights_paths = []
 
@@ -181,7 +189,7 @@ def main(args):
 
         scheduler.step(loss_avg)
 
-        if loss_avg < best_loss * (1. - args.loss_threshold_to_validate):
+        if loss_avg < best_loss:
             best_loss = loss_avg
             acc_avg, loop_time = val_loop(args, val_loader, encoder, decoder,
                                           tokenizer, max_seq_length)
@@ -213,10 +221,6 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str,
                         default='/workdir/data/experiments/test/',
                         help='Path for saving trained models')
-    parser.add_argument('--loss_threshold_to_validate', type=float, default=0.01,
-                        help='Only validate if get lesser loss')
-    parser.add_argument('--best_loss', type=float, default=None,
-                        help='Only validate if get lesser loss')
     parser.add_argument('--encoder_pretrain', type=str, default='',
                         help='Encoder pretrain path')
     parser.add_argument('--decoder_pretrain', type=str, default='',
@@ -226,7 +230,6 @@ if __name__ == '__main__':
                         help='Path to model config json')
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--epoch_size', type=int, default=50000)
-    parser.add_argument('--prefetch_factor', type=int, default=4)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     parser.add_argument('--transf_prob', type=float, default=0.25)

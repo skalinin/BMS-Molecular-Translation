@@ -6,21 +6,49 @@ import cv2
 from bms.base_sampler import BaseSampler
 
 
+def very_short_sequence_sampler(folder_name, sample_len):
+    if sample_len <= 110:
+        return True
+    return False
+
+
+def short_sequence_sampler(folder_name, sample_len):
+    if 110 < sample_len <= 150:
+        return True
+    return False
+
+
 def medium_sequence_sampler(folder_name, sample_len):
-    if sample_len < 170:
+    if 150 < sample_len <= 170:
         return True
     return False
 
 
 def long_sequence_sampler(folder_name, sample_len):
-    if sample_len >= 170:
+    if 170 < sample_len <= 200:
+        return True
+    return False
+
+
+def very_long_sequence_sampler(folder_name, sample_len):
+    if 200 < sample_len <= 240:
+        return True
+    return False
+
+
+def tremendously_long_sequence_sampler(folder_name, sample_len):
+    if sample_len > 240:
         return True
     return False
 
 
 BATCHFOLDER_FUNC = {
+    "very_short_sequence": very_short_sequence_sampler,
+    "short_sequence": short_sequence_sampler,
     "medium_sequence": medium_sequence_sampler,
     "long_sequence": long_sequence_sampler,
+    "very_long_sequence": very_long_sequence_sampler,
+    "tremendously_long_sequence": tremendously_long_sequence_sampler,
 }
 
 
