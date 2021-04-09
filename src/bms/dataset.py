@@ -102,11 +102,11 @@ class BMSSumbissionDataset(Dataset):
     def __init__(self, data_csv, transform=None):
         super().__init__()
         self.transform = transform
-        self.data_csv = data_csv
+        self.data_csv_len = len(data_csv)
         self.image_paths = data_csv['image_path'].values
 
     def __len__(self):
-        return len(self.data_csv)
+        return self.data_csv_len
 
     def __getitem__(self, idx):
         image_path = self.image_paths[idx]

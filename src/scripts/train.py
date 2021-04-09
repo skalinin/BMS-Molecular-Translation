@@ -7,6 +7,7 @@ import pandas as pd
 import os
 import time
 import argparse
+import json
 
 from bms.dataset import collate_fn, BMSDataset, SequentialSampler
 from bms.transforms import get_train_transforms, get_val_transforms
@@ -79,7 +80,7 @@ def val_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
     return acc_avg.avg, loop_time
 
 
-def get_loaders(args, data_csv):
+def get_loaders(args, model_config, data_csv):
     # create train dataset and dataloader
     train_data_size = int(0.98 * len(data_csv))
     data_csv_train = data_csv.iloc[:train_data_size, :]
@@ -88,8 +89,9 @@ def get_loaders(args, data_csv):
     else:
         print(f'Train dataset len: {data_csv_train.shape[0]}')
 
-    train_transform = get_train_transforms(
-        args.output_height, args.output_width, args.transf_prob)
+    train_transform = get_train_transforms(model_config['image_height'],
+                                           model_config['image_width'],
+                                           args.transf_prob)
     train_dataset = BMSDataset(
         data_csv=data_csv_train,
         transform=train_transform
@@ -109,7 +111,8 @@ def get_loaders(args, data_csv):
     # create val dataset and dataloader
     data_csv_val = data_csv.iloc[train_data_size:, :]
     print(f'Val dataset len: {data_csv_val.shape[0]}')
-    val_transform = get_val_transforms(args.output_height, args.output_width)
+    val_transform = get_val_transforms(
+        model_config['image_height'], model_config['image_width'])
     val_dataset = BMSDataset(
         data_csv=data_csv_val,
         transform=val_transform
@@ -124,6 +127,9 @@ def get_loaders(args, data_csv):
 
 
 def main(args):
+    with open(args.config_path) as data:
+        model_config = json.load(data)
+
     data_csv = pd.read_pickle('/workdir/data/processed/train_labels_processed.pkl')
     max_seq_length = data_csv['InChI_index_len'].max()
 
@@ -132,7 +138,7 @@ def main(args):
         os.makedirs(args.model_path)
 
     tokenizer = torch.load('/workdir/data/processed/tokenizer.pth')
-    train_loader, val_loader = get_loaders(args, data_csv)
+    train_loader, val_loader = get_loaders(args, model_config, data_csv)
 
     # Build the models
     encoder = EncoderCNN()
@@ -142,12 +148,12 @@ def main(args):
         print('Load pretrained encoder')
     encoder.to(DEVICE)
     decoder = DecoderWithAttention(
-        attention_dim=args.attention_dim,
-        embed_dim=args.embed_dim,
-        decoder_dim=args.decoder_dim,
+        attention_dim=model_config['attention_dim'],
+        embed_dim=model_config['embed_dim'],
+        decoder_dim=model_config['decoder_dim'],
         vocab_size=len(tokenizer),
         device=DEVICE,
-        dropout=args.dropout,
+        dropout=model_config['dropout'],
     )
     if args.decoder_pretrain:
         states = load_pretrain_model(args.decoder_pretrain, decoder, DEVICE)
@@ -162,7 +168,6 @@ def main(args):
     scheduler = ReduceLROnPlateau(optimizer, factor=0.7, patience=15)
 
     best_loss = np.inf if args.best_loss is None else args.best_loss
-    loss_threshold_to_validate = args.loss_threshold_to_validate
     best_acc = np.inf
     saved_weights_paths = []
 
@@ -176,7 +181,7 @@ def main(args):
 
         scheduler.step(loss_avg)
 
-        if loss_avg < best_loss * (1. - loss_threshold_to_validate):
+        if loss_avg < best_loss * (1. - args.loss_threshold_to_validate):
             best_loss = loss_avg
             acc_avg, loop_time = val_loop(args, val_loader, encoder, decoder,
                                           tokenizer, max_seq_length)
@@ -207,30 +212,18 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_path', type=str,
                         default='/workdir/data/experiments/test/',
-                        help='path for saving trained models')
+                        help='Path for saving trained models')
     parser.add_argument('--loss_threshold_to_validate', type=float, default=0.01,
-                        help='only validate if get lesser loss')
+                        help='Only validate if get lesser loss')
     parser.add_argument('--best_loss', type=float, default=None,
-                        help='only validate if get lesser loss')
+                        help='Only validate if get lesser loss')
     parser.add_argument('--encoder_pretrain', type=str, default='',
-                        help='encoder pretrain path')
+                        help='Encoder pretrain path')
     parser.add_argument('--decoder_pretrain', type=str, default='',
-                        help='decoder pretrain path')
-    parser.add_argument('--output_height', type=int, default=224,
-                        help='Height of images in dataset')
-    parser.add_argument('--output_width', type=int, default=224,
-                        help='Max width of images in dataset')
-
-    # Model parameters
-    parser.add_argument('--attention_dim', type=int, default=256,
-                        help='size of the attention network')
-    parser.add_argument('--embed_dim', type=int, default=256,
-                        help='input size of embedding network')
-    parser.add_argument('--decoder_dim', type=int, default=512,
-                        help='input size of decoder network')
-    parser.add_argument('--dropout', type=float, default=0.5,
-                        help='dropout rate')
-
+                        help='Decoder pretrain path')
+    parser.add_argument('--config_path', type=str,
+                        default='/workdir/src/bms/model_config.json',
+                        help='Path to model config json')
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--epoch_size', type=int, default=50000)
     parser.add_argument('--prefetch_factor', type=int, default=4)

@@ -5,7 +5,7 @@ ENV DEBIAN_FRONTEND noninteractive
 RUN apt-get update &&\
     apt-get -y install \
     build-essential yasm nasm cmake \
-    unzip git htop nvtop wget curl nano tmux \
+    unzip git htop nvtop wget curl tmux \
     sysstat libtcmalloc-minimal4 pkgconf autoconf libtool flex bison \
     python3 python3-pip python3-dev python3-setuptools \
     libglib2.0-0 libgl1-mesa-glx \

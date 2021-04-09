@@ -4,6 +4,7 @@ import numpy as np
 from tqdm import tqdm
 import torch
 import argparse
+import json
 
 from bms.utils import get_file_path
 from bms.dataset import BMSSumbissionDataset
@@ -36,6 +37,9 @@ def test_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
 
 
 def main(args):
+    with open(args.config_path) as data:
+        model_config = json.load(data)
+
     data_csv = pd.read_pickle(
         '/workdir/data/processed/train_labels_processed.pkl')
     max_seq_length = data_csv['InChI_index_len'].max()
@@ -47,7 +51,8 @@ def main(args):
 
     tokenizer = torch.load('/workdir/data/processed/tokenizer.pth')
 
-    test_transform = get_val_transforms(args.output_height, args.output_width)
+    test_transform = get_val_transforms(
+        model_config['image_height'], model_config['image_width'])
     test_dataset = BMSSumbissionDataset(
         data_csv=test_csv,
         transform=test_transform
@@ -66,12 +71,12 @@ def main(args):
         print('Load pretrained encoder')
     encoder.to(DEVICE)
     decoder = DecoderWithAttention(
-        attention_dim=args.attention_dim,
-        embed_dim=args.embed_dim,
-        decoder_dim=args.decoder_dim,
+        attention_dim=model_config['attention_dim'],
+        embed_dim=model_config['embed_dim'],
+        decoder_dim=model_config['decoder_dim'],
         vocab_size=len(tokenizer),
         device=DEVICE,
-        dropout=args.dropout,
+        dropout=model_config['dropout'],
     )
     if args.decoder_pretrain:
         states = load_pretrain_model(args.decoder_pretrain, decoder, DEVICE)
@@ -79,7 +84,8 @@ def main(args):
         print('Load pretrained decoder')
     decoder.to(DEVICE)
 
-    predictions = test_loop(args, test_loader, encoder, decoder, tokenizer, max_seq_length)
+    predictions = test_loop(args, test_loader, encoder, decoder, tokenizer,
+                            max_seq_length)
 
     test_csv['InChI'] = [f"InChI=1S/{text}" for text in predictions]
     test_csv[['image_id', 'InChI']].to_csv(
@@ -89,20 +95,9 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    # Model parameters
-    parser.add_argument('--attention_dim', type=int, default=256,
-                        help='size of the attention network')
-    parser.add_argument('--embed_dim', type=int, default=256,
-                        help='input size of embedding network')
-    parser.add_argument('--decoder_dim', type=int, default=512,
-                        help='input size of decoder network')
-    parser.add_argument('--dropout', type=float, default=0.5,
-                        help='dropout rate')
-    parser.add_argument('--output_height', type=int, default=224,
-                        help='Height of images in dataset')
-    parser.add_argument('--output_width', type=int, default=224,
-                        help='Max width of images in dataset')
-
+    parser.add_argument('--config_path', type=str,
+                        default='/workdir/src/bms/model_config.json',
+                        help='Path to model config json')
     parser.add_argument('--submission_path', type=str,
                         default='/workdir/data/experiments/',
                         help='path for saving submission csv')
