@@ -284,19 +284,10 @@ def glare(img, n_vert, contr, bright):
     return img
 
 
-def gauss_noise(img, sigma_squared):
-    w, h = img_size(img)
-    gauss = np.random.normal(0, sigma_squared, (h, w, 3))
-    gauss = gauss.reshape(h, w, 3)
-    img = img + gauss
-    return img
-
-
-class RandomTransform(object):
-    def __init__(self, contr=0.0, bright=0, sigma_squared=0, n_vert=None):
+class RandomBright(object):
+    def __init__(self, contr=0.0, bright=0, n_vert=None):
         self.contr = contr
         self.bright = bright
-        self.sigma_squared = sigma_squared
         self.n_vert = n_vert
         if self.n_vert is not None:
             if self.n_vert < 4:
@@ -305,17 +296,12 @@ class RandomTransform(object):
     def __call__(self, img, mask=None):
         if self.n_vert is not None:
             self.n_vert_rnd = np.random.randint(3, self.n_vert)
-            bright_f = random.randint(0, 3 * self.bright)  # Brightness
+            bright_f = random.uniform(-self.bright, self.bright)
             img = glare(img, self.n_vert_rnd, 1.0, bright_f)
             img = satur_img(img)
         contr_f = random.uniform(1 - self.contr, 1 + self.contr)  # Contrast
         bright_f = random.uniform(-self.bright, self.bright)  # Brightness
         img = lin_img(img, contr_f, bright_f)
-        blur = random.randint(0, 1)  # Blur kernel type
-        if blur == 1:
-            img = cv2.GaussianBlur(img, (3, 3), 20)
-
-        img = gauss_noise(img, random.uniform(0, self.sigma_squared))
         img = satur_img(img)
         img = np.uint8(img)
 
@@ -391,10 +377,7 @@ def get_train_transforms(output_height, output_width, prob):
         Scale((output_height, output_width)),
         UseWithProb(RandomRotate(), prob=prob),
         UseWithProb(GaussNoise(20), prob=prob),
-        UseWithProb(
-            RandomTransform(contr=0.5, bright=30, sigma_squared=20, n_vert=15),
-            prob=prob
-        ),
+        UseWithProb(RandomBright(contr=0.5, bright=30, n_vert=10), prob=prob),
         UseWithProb(RandomGaussianBlur(max_ksize=3), prob=prob),
         UseWithProb(HorizontalFlip(), prob=prob),
         UseWithProb(VerticalFlip(), prob=prob),
