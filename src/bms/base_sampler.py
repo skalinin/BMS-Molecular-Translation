@@ -11,14 +11,17 @@ class BaseSampler(Sampler):
         folder2freq (dict): Batchfolder frequence parameters.
         batchfolder_func (dict): Dictionaty with batchfolders and its
             corresponding functions.
+        hard_normalization (bool, optional): Normalize sample2prob to sum to 1.
+            May not to sum to 1 if probs are too small numbers.
         dataset_len (int, optional): Length of output dataset (by default it
             is equal to the length of the input dataset).
     """
     def __init__(
-        self, dataset, folder2freq, batchfolder_func,
-        dataset_len=None
+        self, dataset, folder2freq, batchfolder_func, dataset_len=None,
+        hard_normalization=True
     ):
         self.dataset = dataset
+        self.hard_normalization = hard_normalization
         self.folder2freq = folder2freq
         self.batchfolder_func = batchfolder_func
         if dataset_len is not None:
@@ -53,6 +56,11 @@ class BaseSampler(Sampler):
             folder2sample_prob[folder] = sample_prob
         return folder2sample_prob
 
+    def _hard_normalization(self, sample2prob):
+        """Probabilities normalization to make them sum to 1."""
+        sample2prob /= sample2prob.sum()
+        return sample2prob
+
     def _sample2prob(self):
         """Make list of samples' probabilities to be added in batch.
         The length of the list is equal to the length of the dataset.
@@ -61,6 +69,8 @@ class BaseSampler(Sampler):
         folder2sample_prob = self._folder2sample_prob(sample2folder)
         sample2prob = np.array(
             [folder2sample_prob[folder] for folder in sample2folder])
+        if self.hard_normalization:
+            sample2prob = self._hard_normalization(sample2prob)
         return sample2prob
 
     def __iter__(self):
