@@ -1,77 +1,30 @@
 import torch
 from torch.utils.data import Dataset
-import random
+import numpy as np
 import cv2
 
 from bms.base_sampler import BaseSampler
 
 
-def very_short_sequence_sampler(folder_name, sample_len):
-    if sample_len <= 110:
-        return True
-    return False
-
-
-def short_sequence_sampler(folder_name, sample_len):
-    if 110 < sample_len <= 150:
-        return True
-    return False
-
-
-def medium_sequence_sampler(folder_name, sample_len):
-    if 150 < sample_len <= 170:
-        return True
-    return False
-
-
-def long_sequence_sampler(folder_name, sample_len):
-    if 170 < sample_len <= 200:
-        return True
-    return False
-
-
-def very_long_sequence_sampler(folder_name, sample_len):
-    if 200 < sample_len <= 230:
-        return True
-    return False
-
-
-def tremendously_long_sequence_sampler(folder_name, sample_len):
-    if 230 < sample_len <= 270:
-        return True
-    return False
-
-
-def longest_long_sequence_sampler(folder_name, sample_len):
-    if sample_len > 270:
-        return True
-    return False
-
-
-BATCHFOLDER_FUNC = {
-    "very_short_sequence": very_short_sequence_sampler,
-    "short_sequence": short_sequence_sampler,
-    "medium_sequence": medium_sequence_sampler,
-    "long_sequence": long_sequence_sampler,
-    "very_long_sequence": very_long_sequence_sampler,
-    "tremendously_long_sequence": tremendously_long_sequence_sampler,
-    "longest_long_sequence_sampler": longest_long_sequence_sampler
-}
-
-
 class SequentialSampler(BaseSampler):
     def __init__(self, dataset, folder2freq, dataset_len):
-        super().__init__(dataset, folder2freq, BATCHFOLDER_FUNC, dataset_len)
+        super().__init__(dataset, folder2freq, None, dataset_len)
 
     def _sample2folder(self):
-        """Define folder-name for each sample in dataset."""
-        samples_lengths = self.dataset['InChI_index_len'].values
-        sample2folder = []
-        for sample_len in samples_lengths:
-            sample2folder.append(
-                self._apply_batchfolder_func(sample_len)
-            )
-        return sample2folder
+        """Define folder-name for each sample in dataset.
+        Sample lenght is used as folders.
+        """
+        return self.dataset['InChI_index_len'].values
+
+    def __iter__(self):
+        """Sort inexex by samples length to make LSTM training faster."""
+        dataset_indexes = np.random.choice(
+            len(self.dataset), self.dataset_len, p=self.sample2prob)
+        samples_len = \
+            self.dataset.iloc[dataset_indexes]['InChI_index_len'].values
+        sorted_indexes = [idx for _, idx in
+                          sorted(zip(samples_len, dataset_indexes))]
+        return iter(sorted_indexes)
 
 
 def collate_fn(data):
