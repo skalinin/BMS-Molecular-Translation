@@ -20,13 +20,15 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 FOLDER_2_FREQ = {
-    "very_short_sequence": 1,  # 48% -> 25%
-    "short_sequence": 1,  # 35% -> 25%
-    "medium_sequence": 0.5,  # 8.5% -> 12,5%
-    "long_sequence": 0.75,  # 5.2% -> 19%
-    "very_long_sequence": 0.5,  # 1.5% -> 12,5%
-    "tremendously_long_sequence": 0.25  # 0.3% -> 6%
+    "very_short_sequence": 0.7,
+    "short_sequence": 0.7,
+    "medium_sequence": 0.5,
+    "long_sequence": 0.7,
+    "very_long_sequence": 0.8,
+    "tremendously_long_sequence": 0.9,
+    "longest_long_sequence_sampler": 1.8
 }
+
 
 SCALER = torch.cuda.amp.GradScaler()
 

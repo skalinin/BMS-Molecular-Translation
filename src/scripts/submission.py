@@ -27,9 +27,10 @@ def test_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
     tq = tqdm(data_loader, total=len(data_loader))
     for images in tq:
         images = images.to(DEVICE)
-        with torch.no_grad():
-            features = encoder(images)
-            predictions = decoder.predict(features, max_seq_length, tokenizer)
+        with torch.cuda.amp.autocast():
+            with torch.no_grad():
+                features = encoder(images)
+                predictions = decoder.predict(features, max_seq_length, tokenizer)
         predicted_sequence = torch.argmax(predictions.detach().cpu(), -1).numpy()
         text_preds.append(
             tokenizer.predict_captions(predicted_sequence))

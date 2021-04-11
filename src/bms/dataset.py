@@ -31,13 +31,19 @@ def long_sequence_sampler(folder_name, sample_len):
 
 
 def very_long_sequence_sampler(folder_name, sample_len):
-    if 200 < sample_len <= 240:
+    if 200 < sample_len <= 230:
         return True
     return False
 
 
 def tremendously_long_sequence_sampler(folder_name, sample_len):
-    if sample_len > 240:
+    if 230 < sample_len <= 270:
+        return True
+    return False
+
+
+def longest_long_sequence_sampler(folder_name, sample_len):
+    if sample_len > 270:
         return True
     return False
 
@@ -49,6 +55,7 @@ BATCHFOLDER_FUNC = {
     "long_sequence": long_sequence_sampler,
     "very_long_sequence": very_long_sequence_sampler,
     "tremendously_long_sequence": tremendously_long_sequence_sampler,
+    "longest_long_sequence_sampler": longest_long_sequence_sampler
 }
 
 
