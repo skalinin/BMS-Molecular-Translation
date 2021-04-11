@@ -8,6 +8,7 @@ import os
 import time
 import argparse
 import json
+from collections import Counter
 
 from bms.dataset import collate_fn, BMSDataset, SequentialSampler
 from bms.transforms import get_train_transforms, get_val_transforms
@@ -17,18 +18,6 @@ from bms.utils import load_pretrain_model
 
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-
-FOLDER_2_FREQ = {
-    "very_short_sequence": 0.7,
-    "short_sequence": 0.7,
-    "medium_sequence": 0.5,
-    "long_sequence": 0.7,
-    "very_long_sequence": 0.8,
-    "tremendously_long_sequence": 0.9,
-    "longest_long_sequence_sampler": 1.8
-}
-
 
 SCALER = torch.cuda.amp.GradScaler()
 
@@ -99,6 +88,17 @@ def get_loaders(args, model_config, data_csv):
         print(f'Train dataset len: {args.epoch_size}')
     else:
         print(f'Train dataset len: {data_csv_train.shape[0]}')
+
+    # Make FOLDER_2_FREQ dict for batch sampler.
+    # Make long sequences more frequent in batches, but not to
+    # make rare samples occurred too often to not to overtrain the model.
+    FOLDER_2_FREQ = {}
+    min_len = min(data_csv_train['InChI_index_len'].values)
+    max_len = max(data_csv_train['InChI_index_len'].values)
+    len2samples = Counter(data_csv_train['InChI_index_len'].values)
+    total_samples = sum(len2samples.values())
+    for i in range(min_len, max_len+1):
+        FOLDER_2_FREQ[i] = 1 + (i**5) * (len2samples[i] / total_samples)
 
     train_transform = get_train_transforms(model_config['image_height'],
                                            model_config['image_width'],
