@@ -82,7 +82,7 @@ def val_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
 
 def get_loaders(args, model_config, data_csv):
     # create train dataset and dataloader
-    train_data_size = int(0.98 * len(data_csv))
+    train_data_size = int(0.97 * len(data_csv))
     data_csv_train = data_csv.iloc[:train_data_size, :]
     if args.epoch_size is not None:
         print(f'Train dataset len: {args.epoch_size}')
