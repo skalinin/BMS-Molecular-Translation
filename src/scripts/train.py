@@ -21,6 +21,8 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 SCALER = torch.cuda.amp.GradScaler()
 
+torch.backends.cudnn.benchmark = True
+
 
 def train_loop(args, data_loader, encoder, decoder, criterion, optimizer):
     loss_avg = AverageMeter()
@@ -48,7 +50,7 @@ def train_loop(args, data_loader, encoder, decoder, criterion, optimizer):
             outputs = pack_padded_sequence(predictions, decode_lengths, batch_first=True)[0]
             loss = criterion(outputs, targets)  # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
 
-        loss_avg.update(loss.item(), args.batch_size)
+        loss_avg.update(loss.item(), args.train_batch_size)
         SCALER.scale(loss).backward()
         torch.nn.utils.clip_grad_norm_(encoder.parameters(), 5)
         torch.nn.utils.clip_grad_norm_(decoder.parameters(), 5)
@@ -75,14 +77,14 @@ def val_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
                 predictions = decoder.predict(features, max_seq_length, tokenizer)
         predicted_sequence = torch.argmax(predictions.detach().cpu(), -1).numpy()
         text_preds = tokenizer.predict_captions(predicted_sequence)
-        acc_avg.update(get_score(text_true, text_preds), args.batch_size)
+        acc_avg.update(get_score(text_true, text_preds), args.val_batch_size)
     loop_time = sec2min(time.time() - strat_time)
     return acc_avg.avg, loop_time
 
 
 def get_loaders(args, model_config, data_csv):
     # create train dataset and dataloader
-    train_data_size = int(0.97 * len(data_csv))
+    train_data_size = int(0.98 * len(data_csv))
     data_csv_train = data_csv.iloc[:train_data_size, :]
     if args.epoch_size is not None:
         print(f'Train dataset len: {args.epoch_size}')
@@ -98,7 +100,7 @@ def get_loaders(args, model_config, data_csv):
     len2samples = Counter(data_csv_train['InChI_index_len'].values)
     total_samples = sum(len2samples.values())
     for i in range(min_len, max_len+1):
-        FOLDER_2_FREQ[i] = 1 + (i**5) * (len2samples[i] / total_samples)
+        FOLDER_2_FREQ[i] = 1 + (i**3) * (len2samples[i] / total_samples)
 
     train_transform = get_train_transforms(model_config['image_height'],
                                            model_config['image_width'],
@@ -110,7 +112,7 @@ def get_loaders(args, model_config, data_csv):
     # create train dataloader with custom batch_sampler
     sampler = SequentialSampler(data_csv_train, FOLDER_2_FREQ, args.epoch_size)
     batcher = torch.utils.data.BatchSampler(
-        sampler, batch_size=args.batch_size, drop_last=True)
+        sampler, batch_size=args.train_batch_size, drop_last=True)
     train_loader = torch.utils.data.DataLoader(
         dataset=train_dataset,
         batch_sampler=batcher,
@@ -129,7 +131,7 @@ def get_loaders(args, model_config, data_csv):
     )
     val_loader = torch.utils.data.DataLoader(
         dataset=val_dataset,
-        batch_size=args.batch_size,
+        batch_size=args.val_batch_size,
         num_workers=args.num_workers,
         collate_fn=collate_fn
     )
@@ -175,7 +177,7 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
     params = list(decoder.parameters()) + list(encoder.parameters())
     optimizer = torch.optim.Adam(params, lr=args.learning_rate)
-    scheduler = ReduceLROnPlateau(optimizer, factor=0.7, patience=15)
+    scheduler = ReduceLROnPlateau(optimizer, factor=0.7, patience=8)
 
     best_loss = np.inf
     best_acc = np.inf
@@ -230,8 +232,9 @@ if __name__ == '__main__':
     parser.add_argument('--config_path', type=str,
                         default='/workdir/src/bms/model_config.json',
                         help='Path to model config json')
-    parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--epoch_size', type=int, default=50000)
+    parser.add_argument('--train_batch_size', type=int, default=128)
+    parser.add_argument('--val_batch_size', type=int, default=512)
+    parser.add_argument('--epoch_size', type=int, default=100000)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     parser.add_argument('--transf_prob', type=float, default=0.25)
