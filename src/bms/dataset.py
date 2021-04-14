@@ -16,16 +16,6 @@ class SequentialSampler(BaseSampler):
         """
         return self.dataset['InChI_index_len'].values
 
-    def __iter__(self):
-        """Sort inexex by samples length to make LSTM training faster."""
-        dataset_indexes = np.random.choice(
-            len(self.dataset), self.dataset_len, p=self.sample2prob)
-        samples_len = \
-            self.dataset.iloc[dataset_indexes]['InChI_index_len'].values
-        sorted_indexes = [idx for _, idx in
-                          sorted(zip(samples_len, dataset_indexes))]
-        return iter(sorted_indexes)
-
 
 def collate_fn(data):
     """
