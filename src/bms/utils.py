@@ -1,6 +1,17 @@
 import torch
 
 
+def join_inchi_layers(prev_joined_inchis, curr_inchi_layers, chem_token):
+    tokened_curr_inchi_layers = []
+    for curr_inchi_layer in curr_inchi_layers:
+        if len(curr_inchi_layer) > 0:
+            tokened_curr_inchi_layers.append(chem_token + curr_inchi_layer)
+
+    joined_inchis = [i + j for i, j in zip(prev_joined_inchis,
+                                           tokened_curr_inchi_layers)]
+    return joined_inchis
+
+
 def load_pretrain_model(weights_path, model, device):
     old_model = torch.load(weights_path, device)
     new_dict = model.state_dict()

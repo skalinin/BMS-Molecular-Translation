@@ -7,14 +7,14 @@ import pandas as pd
 import os
 import time
 import argparse
-import json
 from collections import Counter
 
-from bms.dataset import collate_fn, BMSDataset, SequentialSampler
+from bms.dataset import collate_fn, BMSTrainDataset, BMSValDataset, SequentialSampler
 from bms.transforms import get_train_transforms, get_val_transforms
 from bms.model import EncoderCNN, DecoderWithAttention
 from bms.metrics import AverageMeter, get_score, sec2min
-from bms.utils import load_pretrain_model
+from bms.utils import load_pretrain_model, join_inchi_layers
+from bms.model_config import model_config
 
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -68,49 +68,55 @@ def val_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
     if encoder.training:
         encoder.eval()
 
-    for i, (images, captions, lengths, text_true) in enumerate(data_loader):
+    for images, text_true in data_loader:
+        batch_size = len(text_true)
         images = images.to(DEVICE)
-        captions = captions.to(DEVICE)
         with torch.cuda.amp.autocast():
             with torch.no_grad():
                 features = encoder(images)
-                predictions = decoder.predict(features, max_seq_length, tokenizer)
-        predicted_sequence = torch.argmax(predictions.detach().cpu(), -1).numpy()
-        text_preds = tokenizer.predict_captions(predicted_sequence)
-        acc_avg.update(get_score(text_true, text_preds), args.val_batch_size)
+
+        joined_inchi = ['' for i in range(batch_size)]
+        for chem in model_config['chem_predict']:
+            start_token = model_config['chem2start_token'][chem]
+            start_tokens = torch.ones(batch_size, dtype=torch.long).to(DEVICE) \
+                * tokenizer.token2idx[start_token]
+            with torch.cuda.amp.autocast():
+                with torch.no_grad():
+                    predictions = decoder.predict(features, max_seq_length, start_tokens)
+            predicted_sequence = torch.argmax(predictions.detach().cpu(), -1).numpy()
+            text_preds = tokenizer.predict_captions(predicted_sequence)
+            joined_inchi = join_inchi_layers(joined_inchi, text_preds, chem)
+        acc_avg.update(get_score(text_true, joined_inchi), batch_size)
     loop_time = sec2min(time.time() - strat_time)
     return acc_avg.avg, loop_time
 
 
-def get_loaders(args, model_config, data_csv):
-    # create train dataset and dataloader
-    train_data_size = int(0.98 * len(data_csv))
-    data_csv_train = data_csv.iloc[:train_data_size, :]
+def get_loaders(args, train_csv, val_csv):
     if args.epoch_size is not None:
         print(f'Train dataset len: {args.epoch_size}')
     else:
-        print(f'Train dataset len: {data_csv_train.shape[0]}')
+        print(f'Train dataset len: {train_csv.shape[0]}')
 
     # Make FOLDER_2_FREQ dict for batch sampler.
     # Make long sequences more frequent in batches, but not to
     # make rare samples occurred too often to not to overtrain the model.
     FOLDER_2_FREQ = {}
-    min_len = min(data_csv_train['InChI_index_len'].values)
-    max_len = max(data_csv_train['InChI_index_len'].values)
-    len2samples = Counter(data_csv_train['InChI_index_len'].values)
+    min_len = min(train_csv['InChI_index_len'].values)
+    max_len = max(train_csv['InChI_index_len'].values)
+    len2samples = Counter(train_csv['InChI_index_len'].values)
     total_samples = sum(len2samples.values())
     for i in range(min_len, max_len+1):
-        FOLDER_2_FREQ[i] = 1 + (i**3) * (len2samples[i] / total_samples)
+        FOLDER_2_FREQ[i] = 1  # (1+i) * (len2samples[i] / total_samples)
 
     train_transform = get_train_transforms(model_config['image_height'],
                                            model_config['image_width'],
                                            args.transf_prob)
-    train_dataset = BMSDataset(
-        data_csv=data_csv_train,
+    train_dataset = BMSTrainDataset(
+        data_csv=train_csv,
         transform=train_transform
     )
     # create train dataloader with custom batch_sampler
-    sampler = SequentialSampler(data_csv_train, FOLDER_2_FREQ, args.epoch_size)
+    sampler = SequentialSampler(train_csv, FOLDER_2_FREQ, args.epoch_size)
     batcher = torch.utils.data.BatchSampler(
         sampler, batch_size=args.train_batch_size, drop_last=True)
     train_loader = torch.utils.data.DataLoader(
@@ -121,36 +127,32 @@ def get_loaders(args, model_config, data_csv):
     )
 
     # create val dataset and dataloader
-    data_csv_val = data_csv.iloc[train_data_size:, :]
-    print(f'Val dataset len: {data_csv_val.shape[0]}')
+    print(f'Val dataset len: {val_csv.shape[0]}')
     val_transform = get_val_transforms(
         model_config['image_height'], model_config['image_width'])
-    val_dataset = BMSDataset(
-        data_csv=data_csv_val,
+    val_dataset = BMSValDataset(
+        data_csv=val_csv,
         transform=val_transform
     )
     val_loader = torch.utils.data.DataLoader(
         dataset=val_dataset,
         batch_size=args.val_batch_size,
         num_workers=args.num_workers,
-        collate_fn=collate_fn
     )
     return train_loader, val_loader
 
 
 def main(args):
-    with open(args.config_path) as data:
-        model_config = json.load(data)
-
-    data_csv = pd.read_pickle('/workdir/data/processed/train_labels_processed.pkl')
-    max_seq_length = data_csv['InChI_index_len'].max()
+    train_csv = pd.read_pickle('/workdir/data/processed/train_labels_processed.pkl')
+    val_csv = pd.read_pickle('/workdir/data/processed/val_labels_processed.pkl')
+    max_seq_length = train_csv['InChI_index_len'].max()
 
     # Create model directory
     if not os.path.exists(args.model_path):
         os.makedirs(args.model_path)
 
     tokenizer = torch.load('/workdir/data/processed/tokenizer.pth')
-    train_loader, val_loader = get_loaders(args, model_config, data_csv)
+    train_loader, val_loader = get_loaders(args, train_csv, val_csv)
 
     # Build the models
     encoder = EncoderCNN()
@@ -180,7 +182,7 @@ def main(args):
     scheduler = ReduceLROnPlateau(optimizer, factor=0.7, patience=8)
 
     best_loss = np.inf
-    best_acc = np.inf
+    best_loss_for_validation = np.inf
     saved_weights_paths = []
 
     for epoch in range(10000):
@@ -195,29 +197,29 @@ def main(args):
 
         if loss_avg < best_loss:
             best_loss = loss_avg
+            print('Val weights saved')
+            encoder_save_path = os.path.join(
+                args.model_path,
+                'encoder-{}-{:.4f}.ckpt'.format(epoch, loss_avg))
+            decoder_save_path = os.path.join(
+                args.model_path,
+                'decoder-{}-{:.4f}.ckpt'.format(epoch, loss_avg))
+            torch.save(encoder.state_dict(), encoder_save_path)
+            torch.save(decoder.state_dict(), decoder_save_path)
+            saved_weights_paths.append(
+                (encoder_save_path, decoder_save_path)
+            )
+            if len(saved_weights_paths) > 3:
+                old_weights_paths = saved_weights_paths.pop(0)
+                for old_weights_path in old_weights_paths:
+                    if os.path.exists(old_weights_path):
+                        os.remove(old_weights_path)
+                        print(f"Model removed '{old_weights_path}'")
+        if loss_avg < best_loss_for_validation * (1 - 0.1):
+            best_loss_for_validation = loss_avg
             acc_avg, loop_time = val_loop(args, val_loader, encoder, decoder,
                                           tokenizer, max_seq_length)
             print('Val step Acc: {:.4f}, loop_time: {}'.format(acc_avg, loop_time))
-            if acc_avg < best_acc:
-                best_acc = acc_avg
-                print('Val weights saved')
-                encoder_save_path = os.path.join(
-                    args.model_path,
-                    'encoder-{}-{:.4f}.ckpt'.format(epoch, acc_avg))
-                decoder_save_path = os.path.join(
-                    args.model_path,
-                    'decoder-{}-{:.4f}.ckpt'.format(epoch, acc_avg))
-                torch.save(encoder.state_dict(), encoder_save_path)
-                torch.save(decoder.state_dict(), decoder_save_path)
-                saved_weights_paths.append(
-                    (encoder_save_path, decoder_save_path)
-                )
-                if len(saved_weights_paths) > 3:
-                    old_weights_paths = saved_weights_paths.pop(0)
-                    for old_weights_path in old_weights_paths:
-                        if os.path.exists(old_weights_path):
-                            os.remove(old_weights_path)
-                            print(f"Model removed '{old_weights_path}'")
 
 
 if __name__ == '__main__':
@@ -229,12 +231,9 @@ if __name__ == '__main__':
                         help='Encoder pretrain path')
     parser.add_argument('--decoder_pretrain', type=str, default='',
                         help='Decoder pretrain path')
-    parser.add_argument('--config_path', type=str,
-                        default='/workdir/src/bms/model_config.json',
-                        help='Path to model config json')
-    parser.add_argument('--train_batch_size', type=int, default=128)
+    parser.add_argument('--train_batch_size', type=int, default=256)
     parser.add_argument('--val_batch_size', type=int, default=512)
-    parser.add_argument('--epoch_size', type=int, default=100000)
+    parser.add_argument('--epoch_size', type=int, default=200000)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     parser.add_argument('--transf_prob', type=float, default=0.25)

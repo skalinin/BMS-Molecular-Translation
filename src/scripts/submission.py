@@ -88,7 +88,7 @@ def main(args):
     predictions = test_loop(args, test_loader, encoder, decoder, tokenizer,
                             max_seq_length)
 
-    test_csv['InChI'] = [f"InChI=1S/{text}" for text in predictions]
+    test_csv['InChI'] = predictions
     test_csv[['image_id', 'InChI']].to_csv(
         os.path.join(args.submission_path, 'submission.csv'), index=False)
     print(test_csv.head())
