@@ -76,7 +76,7 @@ class DecoderWithAttention(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embed_dim)  # embedding layer
         self.dropout = nn.Dropout(p=self.dropout)
         self.decode_step = nn.LSTMCell(embed_dim + encoder_dim, decoder_dim, bias=True)  # decoding LSTMCell
-        self.init_h = nn.Linear(encoder_dim+embed_dim, decoder_dim)  # linear layer to find initial hidden state of LSTMCell
+        self.init_h = nn.Linear(encoder_dim, decoder_dim)  # linear layer to find initial hidden state of LSTMCell
         self.init_c = nn.Linear(encoder_dim, decoder_dim)  # linear layer to find initial cell state of LSTMCell
         self.f_beta = nn.Linear(decoder_dim, encoder_dim)  # linear layer to create a sigmoid-activated gate
         self.sigmoid = nn.Sigmoid()
@@ -88,9 +88,9 @@ class DecoderWithAttention(nn.Module):
         self.fc.bias.data.fill_(0)
         self.fc.weight.data.uniform_(-0.1, 0.1)
 
-    def init_hidden_state(self, encoder_out, embeddings):
+    def init_hidden_state(self, encoder_out):
         mean_encoder_out = encoder_out.mean(dim=1)
-        h = self.init_h(torch.cat([mean_encoder_out, embeddings], dim=1))  # (batch_size, decoder_dim + embed_dim)
+        h = self.init_h(mean_encoder_out)  # (batch_size, decoder_dim)
         c = self.init_c(mean_encoder_out)
         return h, c
 
@@ -109,7 +109,7 @@ class DecoderWithAttention(nn.Module):
         # embedding transformed sequence for vector
         embeddings = self.embedding(encoded_captions)  # (batch_size, max_caption_length, embed_dim)
         # initialize hidden state and cell state of LSTM cell
-        h, c = self.init_hidden_state(encoder_out, embeddings[:, 0, :])  # (batch_size, decoder_dim) pass start token in init_hidden_state
+        h, c = self.init_hidden_state(encoder_out)  # (batch_size, decoder_dim)
         # We won't decode at the <end> position, since we've finished generating as soon as we generate <end>
         # So, decoding lengths are actual lengths - 1 (we do not pass <end> to
         # the lstm as we do not want to teach it to predict after <end> token)
@@ -129,15 +129,16 @@ class DecoderWithAttention(nn.Module):
             predictions[:batch_size_t, t, :] = preds
         return predictions, decode_lengths
 
-    def predict(self, encoder_out, decode_lengths, start_tokens):
+    def predict(self, encoder_out, decode_lengths, start_token_index):
         batch_size = encoder_out.size(0)
         encoder_dim = encoder_out.size(-1)
         vocab_size = self.vocab_size
         encoder_out = encoder_out.view(batch_size, -1, encoder_dim)  # (batch_size, num_pixels, encoder_dim)
         # embed start tocken for LSTM input
-        embeddings = self.embedding(start_tokens)
+        start_tockens = torch.ones(batch_size, dtype=torch.long).to(self.device) * start_token_index
+        embeddings = self.embedding(start_tockens)
         # initialize hidden state and cell state of LSTM cell
-        h, c = self.init_hidden_state(encoder_out, embeddings)  # (batch_size, decoder_dim)
+        h, c = self.init_hidden_state(encoder_out)  # (batch_size, decoder_dim)
         predictions = torch.zeros(batch_size, decode_lengths, vocab_size).to(self.device)
         # predict sequence
         for t in range(decode_lengths):

@@ -5,7 +5,7 @@
    "dropout": 0.5,
    "image_height": 224,
    "image_width": 224,
-   "train_dataset_size": 0.97,
+   "train_dataset_size": 0.98,
    "chem_predict": ["InChI=1S/", "/c", "/h"],
    "chem2start_token": {
         "InChI=1S/": "<sos>",

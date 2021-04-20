@@ -1,10 +1,14 @@
 from bms.model_config import model_config
 
 
-def make_inchi_from_chem_dict(chem_dict, chem_to_take):
+def make_inchi_from_chem_dict(chem_dict, chem_to_take, skip_first_token):
     inchi_text = ''
     for chem in chem_to_take:
         chem_text = chem_dict[chem]
+        if skip_first_token:
+            chem = ''
+            skip_first_token = False
+
         if len(chem_text) > 0:
             inchi_text += (chem + chem_text)
     return inchi_text
@@ -35,16 +39,6 @@ def split_InChI_to_chem_groups(InChI_text, chem_tokens):
                 chem_groups_dict[chem_token][len(chem_token):]
 
     return chem_groups_dict
-
-
-def get_chem_text_from_dict(chem_groups_dict, key):
-    return chem_groups_dict.get(key)
-
-
-def text_to_sequence(InChI_tokens, tokenizer, InChI_chem_group):
-    sequence = tokenizer.text_to_sequence(
-        InChI_tokens, model_config['chem2start_token'][InChI_chem_group])
-    return sequence
 
 
 def is_put_space(prev_char, curr_char):
@@ -101,10 +95,9 @@ class Tokenizer:
     All raw text should be preprocess to separate tokens by spaces.
     """
 
-    def __init__(self, start_tokens):
+    def __init__(self):
         self.token2idx = {}
         self.idx2token = {}
-        self.start_tokens = start_tokens
 
     def __len__(self):
         return len(self.token2idx)
@@ -116,17 +109,16 @@ class Tokenizer:
             if text:
                 vocab.update(text.split(' '))
         vocab = sorted(vocab)
-        for start_token in self.start_tokens:
-            vocab.append(start_token)
+        vocab.append('<sos>')
         vocab.append('<eos>')
         for idx, token in enumerate(vocab):
             self.token2idx[token] = idx
             self.idx2token[idx] = token
 
-    def text_to_sequence(self, text, start_token):
+    def text_to_sequence(self, text):
         """Convert text to sequence of token indexes."""
         sequence = []
-        sequence.append(self.token2idx[start_token])
+        sequence.append(self.token2idx['<sos>'])
         if text:
             for s in text.split(' '):
                 sequence.append(self.token2idx[s])
