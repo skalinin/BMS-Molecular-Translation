@@ -18,36 +18,6 @@ class SequentialSampler(BaseSampler):
         """
         return self.dataset['InChI_index_len'].values
 
-    def build_batches(self, sentences):
-        """
-        Randomize batches sequences along sentences if dataset indexes.
-
-        https://gist.github.com/pommedeterresautee/1a334b665710bec9bb65965f662c94c8#file-trainer-py-L181
-        https://wandb.ai/pommedeterresautee/speed_training/reports/Train-HuggingFace-Models-Twice-As-Fast--VmlldzoxMDgzOTI
-        """
-        batch_ordered_sentences = list()
-        while len(sentences) > 0:
-            to_take = min(self.batch_size, len(sentences))
-            select = random.randint(0, len(sentences) - to_take)
-            batch_ordered_sentences += sentences[select:select + to_take]
-            del sentences[select:select + to_take]
-        return batch_ordered_sentences
-
-    def smart_batches(self, dataset_indexes):
-        """Sort inexex by samples length to make LSTM training faster."""
-        samples_len = \
-            self.dataset.iloc[dataset_indexes]['InChI_index_len'].values
-        sorted_indexes = [idx for _, idx in
-                          sorted(zip(samples_len, dataset_indexes))]
-        batched_sorted_indexes = self.build_batches(sorted_indexes)
-        return batched_sorted_indexes
-
-    def __iter__(self):
-        dataset_indexes = np.random.choice(
-            len(self.dataset), self.dataset_len, p=self.sample2prob)
-        dataset_indexes = self.smart_batches(dataset_indexes)
-        return iter(dataset_indexes)
-
 
 def collate_fn(data):
     """
