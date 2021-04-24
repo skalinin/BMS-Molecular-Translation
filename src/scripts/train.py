@@ -13,7 +13,9 @@ from collections import Counter
 from bms.dataset import collate_fn, BMSDataset, SequentialSampler
 from bms.transforms import get_train_transforms, get_val_transforms
 from bms.model import EncoderCNN, DecoderWithAttention
-from bms.metrics import AverageMeter, get_score, sec2min
+from bms.metrics import (
+    AverageMeter, get_levenshtein_score, get_accuracy, sec2min
+)
 from bms.model_config import model_config
 from bms.utils import load_pretrain_model
 
@@ -33,7 +35,8 @@ def train_loop(args, data_loader, encoder, decoder, criterion, optimizer):
     if not encoder.training:
         encoder.train()
 
-    for images, captions, lengths, _ in tqdm(data_loader, total=len(data_loader), leave=False):
+    tqdm_data_loader = tqdm(data_loader, total=len(data_loader), leave=False)
+    for images, captions, lengths, _ in tqdm_data_loader:
         decoder.zero_grad()
         encoder.zero_grad()
 
@@ -53,8 +56,10 @@ def train_loop(args, data_loader, encoder, decoder, criterion, optimizer):
 
         loss_avg.update(loss.item(), args.train_batch_size)
         SCALER.scale(loss).backward()
-        torch.nn.utils.clip_grad_norm_(encoder.parameters(), 5)
-        torch.nn.utils.clip_grad_norm_(decoder.parameters(), 5)
+        torch.nn.utils.clip_grad_norm_(encoder.parameters(),
+                                       model_config['encoder_clip_grad_norm'])
+        torch.nn.utils.clip_grad_norm_(decoder.parameters(),
+                                       model_config['decoder_clip_grad_norm'])
         SCALER.step(optimizer)
         SCALER.update()
     loop_time = sec2min(time.time() - strat_time)
@@ -62,6 +67,7 @@ def train_loop(args, data_loader, encoder, decoder, criterion, optimizer):
 
 
 def val_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
+    levenshtein_avg = AverageMeter()
     acc_avg = AverageMeter()
     strat_time = time.time()
     if decoder.training:
@@ -69,7 +75,8 @@ def val_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
     if encoder.training:
         encoder.eval()
 
-    for images, _, _, text_true in tqdm(data_loader, total=len(data_loader), leave=False):
+    tqdm_data_loader = tqdm(data_loader, total=len(data_loader), leave=False)
+    for images, _, _, text_true in tqdm_data_loader:
         images = images.to(DEVICE)
         batch_size = len(text_true)
         with torch.cuda.amp.autocast():
@@ -79,9 +86,10 @@ def val_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
                     features, max_seq_length, tokenizer.token2idx["<sos>"])
         predicted_sequence = torch.argmax(predictions.detach().cpu(), -1).numpy()
         text_preds = tokenizer.predict_captions(predicted_sequence)
-        acc_avg.update(get_score(text_true, text_preds), batch_size)
+        levenshtein_avg.update(get_levenshtein_score(text_true, text_preds), batch_size)
+        acc_avg.update(get_accuracy(text_true, text_preds), batch_size)
     loop_time = sec2min(time.time() - strat_time)
-    return acc_avg.avg, loop_time
+    return levenshtein_avg.avg, acc_avg.avg, loop_time
 
 
 def get_loaders(args, data_csv):
@@ -99,9 +107,9 @@ def get_loaders(args, data_csv):
     # Make long sequences more frequent in batches, but not to
     # make rare samples occurred too often to not to overtrain the model.
     FOLDER_2_FREQ = {}
-    min_len = min(data_csv_train['InChI_index_len'].values)
-    max_len = max(data_csv_train['InChI_index_len'].values)
-    len2samples = Counter(data_csv_train['InChI_index_len'].values)
+    min_len = min(data_csv_train['Smile_index_len'].values)
+    max_len = max(data_csv_train['Smile_index_len'].values)
+    len2samples = Counter(data_csv_train['Smile_index_len'].values)
     total_samples = sum(len2samples.values())
     for i in range(min_len, max_len+1):
         FOLDER_2_FREQ[i] = 1 + (i**2) * (len2samples[i] / total_samples)
@@ -115,7 +123,7 @@ def get_loaders(args, data_csv):
     )
     # create train dataloader with custom batch_sampler
     sampler = SequentialSampler(
-        data_csv_train, FOLDER_2_FREQ, args.epoch_size, args.val_batch_size)
+        data_csv_train, FOLDER_2_FREQ, args.epoch_size, args.train_batch_size)
     batcher = torch.utils.data.BatchSampler(
         sampler, batch_size=args.train_batch_size, drop_last=True)
     train_loader = torch.utils.data.DataLoader(
@@ -143,7 +151,7 @@ def get_loaders(args, data_csv):
 
 def main(args):
     data_csv = pd.read_pickle('/workdir/data/processed/train_labels_processed.pkl')
-    max_seq_length = data_csv['InChI_index_len'].max()
+    max_seq_length = data_csv['Smile_index_len'].max()
     print(max_seq_length)
 
     # Create model directory
@@ -178,7 +186,9 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
     params = list(decoder.parameters()) + list(encoder.parameters())
     optimizer = torch.optim.Adam(params, lr=args.learning_rate)
-    scheduler = ReduceLROnPlateau(optimizer, factor=0.7, patience=10)
+    scheduler = ReduceLROnPlateau(optimizer,
+                                  factor=args.ReduceLROnPlateau_factor,
+                                  patience=args.ReduceLROnPlateau_patience)
 
     best_loss = np.inf
     best_loss_for_validation = np.inf
@@ -208,17 +218,18 @@ def main(args):
             saved_weights_paths.append(
                 (encoder_save_path, decoder_save_path)
             )
-            if len(saved_weights_paths) > 3:
+            if len(saved_weights_paths) > args.max_weights_to_save:
                 old_weights_paths = saved_weights_paths.pop(0)
                 for old_weights_path in old_weights_paths:
                     if os.path.exists(old_weights_path):
                         os.remove(old_weights_path)
                         print(f"Model removed '{old_weights_path}'")
-        if loss_avg < best_loss_for_validation * (1 - 0.1):
+        if loss_avg < best_loss_for_validation * (1 - args.loss_threshold_to_validate):
             best_loss_for_validation = loss_avg
-            acc_avg, loop_time = val_loop(args, val_loader, encoder, decoder,
-                                          tokenizer, max_seq_length)
-            print('Val step Acc: {:.4f}, loop_time: {}'.format(acc_avg, loop_time))
+            levenshtein_avg, acc_avg, loop_time = val_loop(
+                args, val_loader, encoder, decoder, tokenizer, max_seq_length)
+            print('Validation, Levenshtein: {:.4f}, acc: {:.4f}, loop_time: {}'.format(
+                levenshtein_avg, acc_avg, loop_time))
 
 
 if __name__ == '__main__':
@@ -230,11 +241,16 @@ if __name__ == '__main__':
                         help='Encoder pretrain path')
     parser.add_argument('--decoder_pretrain', type=str, default='',
                         help='Decoder pretrain path')
-    parser.add_argument('--train_batch_size', type=int, default=128)
+    parser.add_argument('--train_batch_size', type=int, default=200)
     parser.add_argument('--val_batch_size', type=int, default=512)
-    parser.add_argument('--epoch_size', type=int, default=150000)
+    parser.add_argument('--epoch_size', type=int, default=200000)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     parser.add_argument('--transf_prob', type=float, default=0.25)
+    parser.add_argument('--ReduceLROnPlateau_factor', type=float, default=0.7)
+    parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=10)
+    parser.add_argument('--max_weights_to_save', type=int, default=3)
+    parser.add_argument('--loss_threshold_to_validate', type=float, default=0.1)
+
     args = parser.parse_args()
     main(args)

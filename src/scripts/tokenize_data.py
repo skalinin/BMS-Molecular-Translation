@@ -4,8 +4,7 @@ import torch
 
 from bms.utils import get_file_path
 from bms.tokenizer import (
-    split_InChI_to_tokens, Tokenizer, make_inchi_from_chem_dict,
-    split_InChI_to_chem_groups
+    split_InChI_to_tokens, Tokenizer, make_smile_from_inchi
 )
 from bms.model_config import model_config
 
@@ -19,34 +18,23 @@ def tokenize_data():
         get_file_path, main_folder='train')
 
     # preprocess InChI sample labels to tokens
-    train_csv['InChI_chem_dict'] = train_csv['InChI'].progress_apply(
-        split_InChI_to_chem_groups,
-        chem_tokens=model_config['chem2start_token'].keys()
-    )
-    train_csv['InChI_text'] = train_csv['InChI_chem_dict'].progress_apply(
-        make_inchi_from_chem_dict,
-        chem_to_take=model_config['chem_predict'],
-        skip_first_token=True
-    )
+    train_csv['Smile'] = \
+        train_csv['InChI'].progress_apply(make_smile_from_inchi)
 
-    # remove unnecessary columns
-    del train_csv['image_id']
-    del train_csv['InChI_chem_dict']
-
-    train_csv['InChI_tokens'] = \
-        train_csv['InChI_text'].progress_apply(split_InChI_to_tokens)
+    train_csv['Smile_tokens'] = \
+        train_csv['Smile'].progress_apply(split_InChI_to_tokens)
 
     # create tokenizer vocab of InChI tokens
     tokenizer = Tokenizer()
-    tokenizer.fit_on_texts(train_csv['InChI_tokens'].values)
+    tokenizer.fit_on_texts(train_csv['Smile_tokens'].values)
     print(tokenizer.token2idx)
     torch.save(tokenizer, '/workdir/data/processed/tokenizer.pth')
 
     # create InChI index for each sample label
-    train_csv['InChI_index'] = \
-        train_csv['InChI_tokens'].progress_apply(tokenizer.text_to_sequence)
-    train_csv['InChI_index_len'] = \
-        train_csv['InChI_index'].progress_apply(len)
+    train_csv['Smile_index'] = \
+        train_csv['Smile_tokens'].progress_apply(tokenizer.text_to_sequence)
+    train_csv['Smile_index_len'] = \
+        train_csv['Smile_index'].progress_apply(len)
 
     # to properly save lists save as pickle
     print(train_csv.iloc[0])

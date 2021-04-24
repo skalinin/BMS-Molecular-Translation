@@ -17,7 +17,7 @@ tqdm.pandas()
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def test_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
+def test_loop(data_loader, encoder, decoder, tokenizer, max_seq_length):
     if decoder.training:
         decoder.eval()
     if encoder.training:
@@ -30,7 +30,8 @@ def test_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
         with torch.cuda.amp.autocast():
             with torch.no_grad():
                 features = encoder(images)
-                predictions = decoder.predict(features, max_seq_length, tokenizer)
+                predictions = decoder.predict(
+                    features, max_seq_length, tokenizer.token2idx["<sos>"])
         predicted_sequence = torch.argmax(predictions.detach().cpu(), -1).numpy()
         text_preds.append(
             tokenizer.predict_captions(predicted_sequence))
@@ -40,10 +41,6 @@ def test_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
 def main(args):
     with open(args.config_path) as data:
         model_config = json.load(data)
-
-    data_csv = pd.read_pickle(
-        '/workdir/data/processed/train_labels_processed.pkl')
-    max_seq_length = data_csv['InChI_index_len'].max()
 
     test_csv = pd.read_csv(
         '/workdir/data/bms-molecular-translation/sample_submission.csv')
@@ -85,8 +82,8 @@ def main(args):
         print('Load pretrained decoder')
     decoder.to(DEVICE)
 
-    predictions = test_loop(args, test_loader, encoder, decoder, tokenizer,
-                            max_seq_length)
+    predictions = test_loop(test_loader, encoder, decoder, tokenizer,
+                            args.max_seq_length)
 
     test_csv['InChI'] = predictions
     test_csv[['image_id', 'InChI']].to_csv(
@@ -106,6 +103,8 @@ if __name__ == '__main__':
                         help='encoder pretrain path')
     parser.add_argument('--decoder_pretrain', type=str, default='',
                         help='decoder pretrain path')
+    parser.add_argument('--max_seq_length', type=int,
+                        help='max sequenxe lenght to decode')
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--num_workers', type=int, default=8)
     args = parser.parse_args()

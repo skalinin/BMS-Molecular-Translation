@@ -1,92 +1,15 @@
+from rdkit import Chem
+
 from bms.model_config import model_config
 
 
-def make_inchi_from_chem_dict(chem_dict, chem_to_take, skip_first_token):
-    inchi_text = ''
-    for chem in chem_to_take:
-        chem_text = chem_dict[chem]
-        if skip_first_token:
-            chem = ''
-            skip_first_token = False
-
-        if len(chem_text) > 0:
-            inchi_text += (chem + chem_text)
-    return inchi_text
-
-
-def split_InChI_to_chem_groups(InChI_text, chem_tokens):
-    chem_groups_dict = {}
-    # all tokens must be in chem_groups_dict
-    for chem_token in chem_tokens:
-        chem_groups_dict[chem_token] = ''
-
-    curr_chem_token = None
-    processed_tokens = []
-    for i in range(len(InChI_text)):
-        for chem_token in chem_tokens:
-            if (
-                InChI_text[i:].startswith(chem_token) and
-                chem_token not in processed_tokens
-            ):
-                curr_chem_token = chem_token
-                processed_tokens.append(chem_token)
-        chem_groups_dict[curr_chem_token] += InChI_text[i]
-
-    # remove start tokens from the begining of the strings
-    for chem_token in chem_tokens:
-        if chem_groups_dict[chem_token]:
-            chem_groups_dict[chem_token] = \
-                chem_groups_dict[chem_token][len(chem_token):]
-
-    return chem_groups_dict
-
-
-def is_put_space(prev_char, curr_char):
-    """Cases to put space in string."""
-
-    # split numbers from anything
-    if (
-        curr_char.isdigit()
-        # and not prev_char.isdigit()
-    ):
-        return True
-
-    # split letters from numbers
-    if (
-        curr_char.isalpha()
-        and prev_char.isdigit()
-    ):
-        return True
-
-    # split upper letters and leave clued lower
-    # chars with upper ones (e.g. "Br").
-    if (
-        curr_char.isalpha()
-        and curr_char.isupper()
-    ):
-        return True
-
-    # split non-letters symbols
-    if (
-        not curr_char.isalpha()
-        and not curr_char.isdigit()
-    ):
-        return True
-
-    return False
+def make_smile_from_inchi(inchi):
+    return Chem.MolToSmiles(Chem.MolFromInchi(inchi))
 
 
 def split_InChI_to_tokens(raw_text):
     """Split InChI-string to separate tokens."""
-
-    splitted_text = ''
-    prev_char = ''
-    for char in raw_text:
-        if is_put_space(prev_char, char):
-            splitted_text += ' '
-        splitted_text += char
-        prev_char = char
-    return splitted_text.lstrip(' ')
+    return " ".join(raw_text)
 
 
 class Tokenizer:
@@ -107,7 +30,7 @@ class Tokenizer:
         vocab = set()
         for text in texts:
             if text:
-                vocab.update(text.split(' '))
+                vocab.update(text)
         vocab = sorted(vocab)
         vocab.append('<sos>')
         vocab.append('<eos>')

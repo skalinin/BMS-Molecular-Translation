@@ -3,18 +3,9 @@
    "embed_dim": 256,
    "decoder_dim": 512,
    "dropout": 0.5,
-   "image_height": 224,
-   "image_width": 224,
-   "train_dataset_size": 0.98,
-   "chem_predict": ["InChI=1S/", "/c", "/h"],
-   "chem2start_token": {
-        "InChI=1S/": "<sos>",
-        "/c": "</c>",
-        "/h": "</h>",
-        "/b": "</b>",
-        "/t": "</t>",
-        "/m": "</m>",
-        "/s": "</s>",
-        "/i": "</i>"
-    }
+   "encoder_clip_grad_norm": 5,
+   "decoder_clip_grad_norm": 5,
+   "image_height": 288,
+   "image_width": 288,
+   "train_dataset_size": 0.97
 }
