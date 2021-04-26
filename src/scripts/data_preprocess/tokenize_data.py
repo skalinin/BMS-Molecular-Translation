@@ -9,6 +9,7 @@ tqdm.pandas()
 
 TRAIN_CSV_PATHS = [
     '/workdir/data/bms-molecular-translation/train_labels_processd.csv',
+    '/workdir/data/Synth_Smiles_by_BMS_tokens/train_processed.csv',
     # '/workdir/data/LG_SMILES/train_processed.csv',
     # '/workdir/data/TOX21/train_processed.csv'
 ]

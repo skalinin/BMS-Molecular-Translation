@@ -45,7 +45,7 @@ def sp_noise(image):
     return image
 
 
-def noisy_smile(smile, inchi_path, add_noise=True, crop_and_pad=True):
+def noisy_smile(smile, save_path, add_noise=True, crop_and_pad=True):
     # Code from https://www.kaggle.com/tuckerarrants/inchi-allowed-external-data
     mol = Chem.MolFromSmiles(smile)
     d = Draw.rdMolDraw2D.MolDraw2DCairo(300, 300)
@@ -58,15 +58,14 @@ def noisy_smile(smile, inchi_path, add_noise=True, crop_and_pad=True):
     d.drawOptions().additionalAtomLabelPadding = np.random.uniform(0, .2)
     d.DrawMolecule(mol)
     d.FinishDrawing()
-    d.WriteDrawingText(inchi_path)
-    if crop_and_pad:
-        img = cv2.imread(inchi_path, cv2.IMREAD_GRAYSCALE)
-        crop_rows = img[~np.all(img==255, axis=1), :]
-        img = crop_rows[:, ~np.all(crop_rows==255, axis=0)]
-        img = cv2.copyMakeBorder(img, 30, 30, 30, 30, cv2.BORDER_CONSTANT, value=255)
-        img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-    else:
-        img = cv2.imread(inchi_path)
-    if add_noise:
-        img = sp_noise(img)
-        cv2.imwrite(inchi_path, img)
+    img = d.GetDrawingText()
+    nparr = np.frombuffer(img, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+    # crop
+    crop_rows = img[~np.all(img==255, axis=1), :]
+    img = crop_rows[:, ~np.all(crop_rows==255, axis=0)]
+    img = cv2.copyMakeBorder(img, 30, 30, 30, 30, cv2.BORDER_CONSTANT, value=255)
+    img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+    # noise
+    img = sp_noise(img)
+    cv2.imwrite(save_path, img)
