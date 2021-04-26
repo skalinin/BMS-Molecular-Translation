@@ -92,11 +92,8 @@ def val_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
     return levenshtein_avg.avg, acc_avg.avg, loop_time
 
 
-def get_loaders(args, data_csv):
+def get_loaders(args, data_csv_train, data_csv_val):
     # create train dataset and dataloader
-    train_data_size = int(model_config['train_dataset_size'] * len(data_csv))
-    data_csv_train = data_csv.iloc[:train_data_size, :]
-    data_csv_val = data_csv.iloc[train_data_size:, :]
     print(f'Val dataset len: {data_csv_val.shape[0]}')
     if args.epoch_size is not None:
         print(f'Train dataset len: {args.epoch_size}')
@@ -107,9 +104,9 @@ def get_loaders(args, data_csv):
     # Make long sequences more frequent in batches, but not to
     # make rare samples occurred too often to not to overtrain the model.
     FOLDER_2_FREQ = {}
-    min_len = min(data_csv_train['Smile_index_len'].values)
-    max_len = max(data_csv_train['Smile_index_len'].values)
-    len2samples = Counter(data_csv_train['Smile_index_len'].values)
+    min_len = min(data_csv_train['Tokens_len'].values)
+    max_len = max(data_csv_train['Tokens_len'].values)
+    len2samples = Counter(data_csv_train['Tokens_len'].values)
     total_samples = sum(len2samples.values())
     for i in range(min_len, max_len+1):
         FOLDER_2_FREQ[i] = 1 + (i**2) * (len2samples[i] / total_samples)
@@ -130,6 +127,7 @@ def get_loaders(args, data_csv):
         dataset=train_dataset,
         batch_sampler=batcher,
         num_workers=args.num_workers,
+        prefetch_factor=4,
         collate_fn=collate_fn
     )
 
@@ -150,8 +148,9 @@ def get_loaders(args, data_csv):
 
 
 def main(args):
-    data_csv = pd.read_pickle('/workdir/data/processed/train_labels_processed.pkl')
-    max_seq_length = data_csv['Smile_index_len'].max()
+    train_csv = pd.read_pickle('/workdir/data/processed/train_labels_processed.pkl')
+    val_csv = pd.read_pickle('/workdir/data/processed/val_labels_processed.pkl')
+    max_seq_length = train_csv['Tokens_len'].max()
     print(max_seq_length)
 
     # Create model directory
@@ -159,7 +158,7 @@ def main(args):
         os.makedirs(args.model_path)
 
     tokenizer = torch.load('/workdir/data/processed/tokenizer.pth')
-    train_loader, val_loader = get_loaders(args, data_csv)
+    train_loader, val_loader = get_loaders(args, train_csv, val_csv)
 
     # Build the models
     encoder = EncoderCNN()

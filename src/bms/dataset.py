@@ -40,12 +40,12 @@ class SequentialSampler(BaseSampler):
         """Define folder-name for each sample in dataset.
         Sample lenght is used as folders.
         """
-        return self.dataset['Smile_index_len'].values
+        return self.dataset['Tokens_len'].values
 
     def smart_batches(self, dataset_indexes):
         """Sort inexex by samples length to make LSTM training faster."""
         samples_len = \
-            self.dataset.iloc[dataset_indexes]['Smile_index_len'].values
+            self.dataset.iloc[dataset_indexes]['Tokens_len'].values
         sorted_indexes = [
             idx for _, idx in
                 sorted(zip(samples_len, dataset_indexes), reverse=True)
@@ -93,8 +93,8 @@ class BMSDataset(Dataset):
         self.data_csv_len = len(data_csv)
         self.image_paths = data_csv['image_path'].values
         self.inchi_text = data_csv['Smile'].values
-        self.inchi_tokens = data_csv['Smile_index'].values
-        self.inchi_lengths = data_csv['Smile_index_len'].values
+        self.inchi_tokens = data_csv['Tokens_indexes'].values
+        self.inchi_lengths = data_csv['Tokens_len'].values
 
     def __len__(self):
         return self.data_csv_len
