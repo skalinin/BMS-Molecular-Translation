@@ -1,8 +1,15 @@
 import torch
 import numpy as np
+import os
 import cv2
+from multiprocessing import Pool
 from rdkit import Chem
 from rdkit.Chem import Draw
+
+
+def make_dir(dir_path):
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
 
 
 def load_pretrain_model(weights_path, model, device):
@@ -14,9 +21,9 @@ def load_pretrain_model(weights_path, model, device):
             if new_dict[key].shape == old_dict[key].shape:
                 new_dict[key] = old_dict[key]
             else:
-                print('\n Weights {} were not loaded'.format(key))
+                print('Weights {} were not loaded'.format(key))
         else:
-            print('\n Weights {} were not loaded'.format(key))
+            print('Weights {} were not loaded'.format(key))
     return new_dict
 
 
@@ -69,3 +76,8 @@ def noisy_smile(smile, save_path, add_noise=True, crop_and_pad=True):
     # noise
     img = sp_noise(img)
     cv2.imwrite(save_path, img)
+
+
+def generate_synth_images(smiles, img_paths, num_process):
+    with Pool(num_process) as p:
+        p.starmap(noisy_smile, zip(smiles, img_paths))

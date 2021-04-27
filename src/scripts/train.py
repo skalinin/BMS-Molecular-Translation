@@ -17,7 +17,7 @@ from bms.metrics import (
     AverageMeter, get_levenshtein_score, get_accuracy, sec2min
 )
 from bms.model_config import model_config
-from bms.utils import load_pretrain_model
+from bms.utils import load_pretrain_model, make_dir
 
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -148,16 +148,15 @@ def get_loaders(args, data_csv_train, data_csv_val):
 
 
 def main(args):
-    train_csv = pd.read_pickle('/workdir/data/processed/train_labels_processed.pkl')
-    val_csv = pd.read_pickle('/workdir/data/processed/val_labels_processed.pkl')
+    train_csv = pd.read_pickle(model_config["paths"]["train_csv"])
+    val_csv = pd.read_pickle(model_config["paths"]["val_csv"])
     max_seq_length = train_csv['Tokens_len'].max()
     print(max_seq_length)
 
     # Create model directory
-    if not os.path.exists(args.model_path):
-        os.makedirs(args.model_path)
+    make_dir(args.model_path)
 
-    tokenizer = torch.load('/workdir/data/processed/tokenizer.pth')
+    tokenizer = torch.load(model_config["paths"]["tokenizer"])
     train_loader, val_loader = get_loaders(args, train_csv, val_csv)
 
     # Build the models

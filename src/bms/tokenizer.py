@@ -2,8 +2,7 @@ from rdkit import Chem
 import re
 
 
-
-def make_smile_from_inchi(inchi):
+def inchi2smile(inchi):
     return Chem.MolToSmiles(Chem.MolFromInchi(inchi))
 
 
@@ -39,20 +38,21 @@ class Tokenizer:
     def __init__(self):
         self.token2idx = {}
         self.idx2token = {}
+        self.vocab = set()
 
     def __len__(self):
         return len(self.token2idx)
 
-    def fit_on_texts(self, texts):
+    def add_texts(self, texts):
         """Create vocab of tokens from list of texts."""
-        vocab = set()
         for text in texts:
-            if text:
-                vocab.update(text)
-        vocab = sorted(vocab)
-        vocab.append('<sos>')
-        vocab.append('<eos>')
-        for idx, token in enumerate(vocab):
+            self.vocab.update(text)
+
+    def fit_on_texts(self):
+        self.vocab = sorted(self.vocab)
+        self.vocab.append('<sos>')
+        self.vocab.append('<eos>')
+        for idx, token in enumerate(self.vocab):
             self.token2idx[token] = idx
             self.idx2token[idx] = token
 
@@ -60,9 +60,8 @@ class Tokenizer:
         """Convert text to sequence of token indexes."""
         sequence = []
         sequence.append(self.token2idx['<sos>'])
-        if text:
-            for s in text:
-                sequence.append(self.token2idx[s])
+        for s in text:
+            sequence.append(self.token2idx[s])
         sequence.append(self.token2idx['<eos>'])
         return sequence
 
