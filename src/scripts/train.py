@@ -227,7 +227,7 @@ def main(args):
             best_loss_for_validation = loss_avg
             levenshtein_avg, acc_avg, loop_time = val_loop(
                 args, val_loader, encoder, decoder, tokenizer, max_seq_length)
-            print('Validation, Levenshtein: {:.4f}, acc: {:.4f}, loop_time: {}'.format(
+            print('\n Validation, Levenshtein: {:.4f}, acc: {:.4f}, loop_time: {}'.format(
                 levenshtein_avg, acc_avg, loop_time))
 
 

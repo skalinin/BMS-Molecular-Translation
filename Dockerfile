@@ -36,6 +36,7 @@ RUN pip3 install --no-cache-dir \
     pudb==2020.1 \
     scikit-learn==0.24.1 \
     scipy==1.6.1 \
+    rdkit-pypi==2021.3.1.4 \
     timm==0.4.5 \
     python-Levenshtein==0.12.2 \
     ipywidgets==7.6.3 \

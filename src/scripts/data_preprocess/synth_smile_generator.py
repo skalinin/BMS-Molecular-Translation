@@ -4,6 +4,7 @@ import pandas as pd
 from tqdm import tqdm
 from multiprocessing import Pool, Manager, Process
 from rdkit import Chem, RDLogger
+from rdkit.Chem import Draw
 import random
 
 from bms.utils import noisy_smile
@@ -12,8 +13,8 @@ RDLogger.DisableLog('rdApp.*')
 
 tqdm.pandas()
 
-N_SAMPLES = 5000
-NUM_PROCESS = 4
+N_SAMPLES = 1000000
+NUM_PROCESS = 8
 
 
 def rnd_smiles_generator(n_samples, tokens):
@@ -23,7 +24,12 @@ def rnd_smiles_generator(n_samples, tokens):
         while not found:
             rnd_smile = random.choices(tokens, k=random.randint(5, 15))
             rnd_smile = ''.join(rnd_smile)
-            mol = Chem.MolFromSmiles(rnd_smile)
+            try:
+                mol = Chem.MolFromSmiles(rnd_smile)
+                d = Draw.rdMolDraw2D.MolDraw2DCairo(300, 300)
+                d.DrawMolecule(mol)
+            except:
+                mol = None
             if mol is not None:
                 smiles.append(rnd_smile)
                 found = True
