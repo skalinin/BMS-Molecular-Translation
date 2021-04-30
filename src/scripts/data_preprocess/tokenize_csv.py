@@ -23,6 +23,12 @@ def is_remove_row(tokens, tokens_to_remove: set):
     return False
 
 
+def is_too_long_row(tokens, seq_len_to_accept):
+    if len(tokens) > seq_len_to_accept:
+        return True
+    return False
+
+
 def remove_rare_tokens(data_csv, token_count_to_accept=0, save_tokens=[]):
     if token_count_to_accept > 0:
         token2counts = \
@@ -40,13 +46,24 @@ def remove_rare_tokens(data_csv, token_count_to_accept=0, save_tokens=[]):
     return data_csv
 
 
-def split_to_tokens(data_csv, tokenizer, token_count_to_accept=0):
+def remove_long_sequences(data_csv, seq_len_to_accept=None):
+    if seq_len_to_accept is not None:
+        to_romove = data_csv['Tokens'].progress_apply(
+            is_too_long_row, seq_len_to_accept=seq_len_to_accept)
+        data_csv = data_csv.drop(data_csv[to_romove].index)
+    return data_csv
+
+
+def split_to_tokens(
+    data_csv, tokenizer, token_count_to_accept=0, seq_len_to_accept=None
+):
     data_csv['Tokens'] = data_csv['Smile'].progress_apply(atomwise_tokenizer)
     data_csv = remove_rare_tokens(
         data_csv,
         token_count_to_accept,
         tokenizer.vocab  # do not remove tokens that alredy in tokenizer
     )
+    data_csv = remove_long_sequences(data_csv, seq_len_to_accept)
     tokenizer.add_texts(data_csv['Tokens'].values)
     return data_csv
 
@@ -79,7 +96,7 @@ def tokenize_data():
 
     train_csv = split_to_tokens(train_csv, tokenizer)
     val_csv = split_to_tokens(val_csv, tokenizer)
-    external_data_csv = split_to_tokens(external_data_csv, tokenizer, 300)
+    external_data_csv = split_to_tokens(external_data_csv, tokenizer, 300, 105)
 
     tokenizer.fit_on_texts()
     print(tokenizer.token2idx)
@@ -96,6 +113,9 @@ def tokenize_data():
         ],
         ignore_index=True
     )
+
+    print("Len train csv:", len(train_csv))
+    print("Len val csv:", len(val_csv))
 
     # to properly save lists save as pickle
     train_csv.to_pickle(model_config["paths"]["train_csv"])
