@@ -1,4 +1,5 @@
 import numpy as np
+import timm
 import torch
 import torch.nn as nn
 import torchvision.models as models
@@ -6,16 +7,12 @@ import torchvision.models as models
 
 class EncoderCNN(nn.Module):
     def __init__(self):
-        """Load the pretrained ResNet-34 and remove two last layers."""
-        super(EncoderCNN, self).__init__()
-        resnet = models.resnet34(pretrained=True)
-        modules = list(resnet.children())[:-2]  # delete last two layers
-        self.resnet = nn.Sequential(*modules)
+        super().__init__()
+        self.cnn = timm.create_model('efficientnet_b3', pretrained=True)
 
-    def forward(self, images):
-        """Extract feature vectors from input images."""
-        features = self.resnet(images)
-        features = features.permute(0, 2, 3, 1)  # (batch_size, 7, 7, 512)
+    def forward(self, x):
+        features = self.cnn.forward_features(x)
+        features = features.permute(0, 2, 3, 1)
         return features
 
 
@@ -56,7 +53,7 @@ class DecoderWithAttention(nn.Module):
     """
 
     def __init__(self, attention_dim, embed_dim, decoder_dim, vocab_size,
-                 device, encoder_dim=512, dropout=0.5):
+                 device, encoder_dim=1536, dropout=0.5):
         """
         :param attention_dim: input size of attention network
         :param embed_dim: input size of embedding network
