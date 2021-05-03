@@ -96,7 +96,7 @@ def tokenize_data():
 
     train_csv = split_to_tokens(train_csv, tokenizer)
     val_csv = split_to_tokens(val_csv, tokenizer)
-    external_data_csv = split_to_tokens(external_data_csv, tokenizer, 300, 105)
+    # external_data_csv = split_to_tokens(external_data_csv, tokenizer, 300, 105)
 
     tokenizer.fit_on_texts()
     print(tokenizer.token2idx)
@@ -104,15 +104,15 @@ def tokenize_data():
 
     train_csv = tokens_to_indexes(train_csv, tokenizer)
     val_csv = tokens_to_indexes(val_csv, tokenizer)
-    external_data_csv = tokens_to_indexes(external_data_csv, tokenizer)
+    # external_data_csv = tokens_to_indexes(external_data_csv, tokenizer)
 
-    train_csv = pd.concat(
-        [
-            train_csv[['image_path', 'Smile', 'Tokens_indexes', 'Tokens_len']],
-            external_data_csv[['image_path', 'Smile', 'Tokens_indexes', 'Tokens_len']]
-        ],
-        ignore_index=True
-    )
+    # train_csv = pd.concat(
+    #     [
+    #         train_csv[['image_path', 'Smile', 'Tokens_indexes', 'Tokens_len']],
+    #         external_data_csv[['image_path', 'Smile', 'Tokens_indexes', 'Tokens_len']]
+    #     ],
+    #     ignore_index=True
+    # )
 
     print("Len train csv:", len(train_csv))
     print("Len val csv:", len(val_csv))
