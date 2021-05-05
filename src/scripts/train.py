@@ -109,7 +109,7 @@ def get_loaders(args, data_csv_train, data_csv_val):
     len2samples = Counter(data_csv_train['Tokens_len'].values)
     total_samples = sum(len2samples.values())
     for i in range(min_len, max_len+1):
-        FOLDER_2_FREQ[i] = 1 + (i**2) * (len2samples[i] / total_samples)
+        FOLDER_2_FREQ[i] = 1 + (i**4) * (len2samples[i] / total_samples)
 
     train_transform = get_train_transforms(model_config['image_height'],
                                            model_config['image_width'],
@@ -192,6 +192,10 @@ def main(args):
     best_loss_for_validation = np.inf
     saved_weights_paths = []
 
+    levenshtein_avg, acc_avg, loop_time = val_loop(
+        args, val_loader, encoder, decoder, tokenizer, max_seq_length)
+    print('\n Validation, Levenshtein: {:.4f}, acc: {:.4f}, loop_time: {}'.format(
+        levenshtein_avg, acc_avg, loop_time))
     for epoch in range(10000):
         loss_avg, loop_time = train_loop(args, train_loader, encoder, decoder,
                                          criterion, optimizer)
@@ -245,7 +249,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     parser.add_argument('--transf_prob', type=float, default=0.25)
-    parser.add_argument('--ReduceLROnPlateau_factor', type=float, default=0.7)
+    parser.add_argument('--ReduceLROnPlateau_factor', type=float, default=0.5)
     parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=4)
     parser.add_argument('--max_weights_to_save', type=int, default=3)
     parser.add_argument('--loss_threshold_to_validate', type=float, default=0.05)

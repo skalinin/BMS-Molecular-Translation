@@ -334,15 +334,6 @@ class GaussNoise:
         return img
 
 
-class Transpose:
-    # https://github.com/albumentations-team/albumentations/blob/master/
-    # albumentations/augmentations/functional.py#L122
-    def __call__(self, img):
-        if len(img.shape) > 2:
-            return img.transpose(1, 0, 2)
-        return img.transpose(1, 0)
-
-
 class MakeHorizontal:
     def __call__(self, img):
         h, w, _ = img.shape
@@ -371,16 +362,33 @@ class RescalePaddingImage:
         return image
 
 
+class Transpose:
+    def __call__(self, img):
+        return cv2.transpose(img)
+
+
+class RandomTransposeAndFlip:
+    def __init__(self):
+        self.transpose = Transpose()
+        self.vertical_flip = VerticalFlip()
+        self.horizontal_flip = HorizontalFlip()
+
+    def __call__(self, img):
+        if random.random() < 0.5:
+            img = self.transpose(img)
+        if random.random() < 0.5:
+            img = self.vertical_flip(img)
+        if random.random() < 0.5:
+            img = self.horizontal_flip(img)
+        return img
+
+
 def get_train_transforms(output_height, output_width, prob):
     transforms = torchvision.transforms.Compose([
         UseWithProb(RandomCrop(0.85), prob=prob),
         Scale((output_height, output_width)),
-        UseWithProb(RandomRotate(), prob=prob),
-        UseWithProb(GaussNoise(20), prob=prob),
-        UseWithProb(RandomBright(contr=0.5, bright=30, n_vert=10), prob=prob),
+        RandomTransposeAndFlip(),
         UseWithProb(RandomGaussianBlur(max_ksize=3), prob=prob),
-        UseWithProb(HorizontalFlip(), prob=prob),
-        UseWithProb(VerticalFlip(), prob=prob),
         Normalize(),
         MoveChannels(),
         ToTensor()
