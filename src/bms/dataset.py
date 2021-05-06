@@ -1,10 +1,8 @@
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 import numpy as np
 import random
 import cv2
-
-from bms.base_sampler import BaseSampler
 
 
 def build_batches(sentences, batch_size, num_chunks_in_batch=1):
@@ -15,7 +13,7 @@ def build_batches(sentences, batch_size, num_chunks_in_batch=1):
 
     Args:
         sentences (list): List of samples.
-        batch_size (int): Batch size,
+        batch_size (int): Batch size.
         num_chunks_in_batch (int, optional): Training batch should consist of
             several "chunks" of samples with different sequece lengths to make
             training more random. Default is 1, which mean in batch would be
@@ -31,16 +29,47 @@ def build_batches(sentences, batch_size, num_chunks_in_batch=1):
     return batch_ordered_sentences
 
 
-class SequentialSampler(BaseSampler):
-    def __init__(self, dataset, folder2freq, dataset_len, batch_size):
-        self.batch_size = batch_size
-        super().__init__(dataset, folder2freq, None, dataset_len)
+def sample_probs_normalization(sample_probs):
+    """Probabilities normalization to make them sum to 1."""
+    sample_probs = sample_probs / sample_probs.sum()
+    return sample_probs
 
-    def _sample2folder(self):
-        """Define folder-name for each sample in dataset.
-        Sample lenght is used as folders.
-        """
-        return self.dataset['Tokens_len'].values
+
+class SequentialSampler(Sampler):
+    """Make sequence of dataset indexes for batch sampler.
+
+    Args:
+        dataset (torch.utils.data.Dataset): Torch dataset or ConcatDataset
+        sample_probs (list, optional): list of samples' probabilities to be 
+        dded in batch. If None probs for all samples would be the same.
+        The length of the list must be equal to the length of the dataset.
+        normalize_sample_probs (bool, optional): Normalize sample_probs to
+            sum to 1. Sum might not be equal to 1 if probs are too small.
+        dataset_len (int, optional): Length of output dataset (by default it
+            is equal to the length of the input dataset).
+        batch_size (int, optional): Batch size, only used in smartbatching.
+        smart_batching (bool, optional): To use smartbatching, default is False.
+    """
+    def __init__(
+        self, dataset, sample_probs=None, normalize_sample_probs=True,
+        dataset_len=None, batch_size=None, smart_batching=False
+    ):
+        self.dataset = dataset
+        if dataset_len is not None:
+            self.dataset_len = dataset_len
+        else:
+            self.dataset_len = len(self.dataset)
+        self.batch_size = batch_size
+        self.smart_batching = smart_batching
+
+        if sample_probs is not None:
+            self.sample_probs = np.array(sample_probs)
+        else:
+            self.sample_probs = np.array([1 for i in range(len(self.dataset))])
+        assert len(self.sample_probs) == len(self.dataset), "The length of the \
+            sample_probs must be equal to the length of the dataset."
+        if normalize_sample_probs:
+            self.sample_probs = sample_probs_normalization(self.sample_probs)
 
     def smart_batches(self, dataset_indexes):
         """Sort inexex by samples length to make LSTM training faster."""
@@ -48,16 +77,20 @@ class SequentialSampler(BaseSampler):
             self.dataset.iloc[dataset_indexes]['Tokens_len'].values
         sorted_indexes = [
             idx for _, idx in
-                sorted(zip(samples_len, dataset_indexes), reverse=True)
+            sorted(zip(samples_len, dataset_indexes), reverse=True)
         ]
         batched_sorted_indexes = build_batches(sorted_indexes, self.batch_size)
         return batched_sorted_indexes
 
     def __iter__(self):
         dataset_indexes = np.random.choice(
-            len(self.dataset), self.dataset_len, p=self.sample2prob)
-        # dataset_indexes = self.smart_batches(dataset_indexes)
+            len(self.dataset), self.dataset_len, p=self.sample_probs)
+        if self.smart_batching:
+            dataset_indexes = self.smart_batches(dataset_indexes)
         return iter(dataset_indexes)
+
+    def __len__(self):
+        return self.dataset_len
 
 
 def collate_fn(data):
@@ -72,7 +105,7 @@ def collate_fn(data):
     """
     # Sort a data list by caption length (descending order).
     data.sort(key=lambda x: len(x[1]), reverse=True)
-    images, captions, lengths, text = zip(*data)
+    images, captions, lengths, text, idxs = zip(*data)
 
     # Merge images (from tuple of 3D tensor to 4D tensor).
     images = torch.stack(images, 0)
@@ -83,7 +116,7 @@ def collate_fn(data):
         end = lengths[i]
         targets[i, :end] = cap[:end]
     lengths = torch.LongTensor(lengths)
-    return images, targets, lengths, text
+    return images, targets, lengths, text, idxs
 
 
 class BMSDataset(Dataset):
@@ -109,7 +142,7 @@ class BMSDataset(Dataset):
             image = self.transform(image)
 
         target = torch.Tensor(target)
-        return image, target, length, text
+        return image, target, length, text, idx
 
 
 class BMSSumbissionDataset(Dataset):
