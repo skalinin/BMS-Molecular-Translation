@@ -38,9 +38,13 @@ class SequentialSampler(Sampler):
             is equal to the length of the input dataset).
         batch_size (int, optional): Batch size, only used in smartbatching.
         smart_batching (bool, optional): To use smartbatching, default is False.
+        init_sample_probs (list, optional): list of samples' probabilities to
+        be added in batch. If None probs for all samples would be the same.
+        The length of the list must be equal to the length of the dataset.
     """
     def __init__(
-        self, dataset, dataset_len=None, batch_size=None, smart_batching=False
+        self, dataset, dataset_len=None, batch_size=None, smart_batching=False,
+        init_sample_probs=None
     ):
         self.dataset = dataset
         if dataset_len is not None:
@@ -49,10 +53,15 @@ class SequentialSampler(Sampler):
             self.dataset_len = len(self.dataset)
         self.batch_size = batch_size
         self.smart_batching = smart_batching
-        self.min_prob = 1.
-        # list of samples probabilities to be added in batch
-        self.init_sample_probs = \
-            np.array([self.min_prob for i in range(len(self.dataset))])
+        if init_sample_probs is None:
+            self.init_sample_probs = \
+                np.array([1. for i in range(len(self.dataset))],
+                         dtype=np.float64)
+        else:
+            self.init_sample_probs = np.array(init_sample_probs,
+                                              dtype=np.float64)
+            assert len(self.init_sample_probs) == len(self.dataset), "The len \
+                of the sample_probs must be equal to the len of the dataset."
 
     def smart_batches(self, dataset_indexes):
         """Sort inexex by samples length to make LSTM training faster."""
@@ -72,12 +81,9 @@ class SequentialSampler(Sampler):
         """
         return self.init_sample_probs / self.init_sample_probs.sum()
 
-    def update_sample_probs(self, text_true, text_preds, idxs, k=5):
-        for true, pred, idx in zip(text_true, text_preds, idxs):
-            if true != pred:
-                self.init_sample_probs[idx] = self.min_prob * k
-            else:
-                self.init_sample_probs[idx] = self.min_prob / k
+    def update_sample_probs(self, probs, idxs):
+        for prob, idx in zip(probs, idxs):
+            self.init_sample_probs[idx] = prob
 
     def __iter__(self):
         sample_probs = self._sample_probs_normalization()

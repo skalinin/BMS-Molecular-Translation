@@ -26,8 +26,19 @@ SCALER = torch.cuda.amp.GradScaler()
 torch.backends.cudnn.benchmark = True
 
 
-def train_loop(args, data_loader, encoder, decoder, criterion, optimizer,
-               tokenizer, sampler):
+def get_sample_probs(loss_no_reduction, decode_lengths):
+    sample_probs = []
+    s = 0
+    for length in decode_lengths:
+        sample_probs.append(
+            loss_no_reduction[s:s+length].sum().item()
+        )
+        s = s + length
+    return sample_probs
+
+
+def train_loop(data_loader, encoder, decoder, criterion, optimizer,
+               sampler, criterion_no_reduction):
     loss_avg = AverageMeter()
     strat_time = time.time()
     len_avg = AverageMeter()
@@ -43,7 +54,7 @@ def train_loop(args, data_loader, encoder, decoder, criterion, optimizer,
 
         images = images.to(DEVICE)
         captions = captions.to(DEVICE)
-
+        batch_size = len(text_true)
         with torch.cuda.amp.autocast():
             features = encoder(images)
             predictions, decode_lengths = decoder(features, captions, lengths)
@@ -54,15 +65,15 @@ def train_loop(args, data_loader, encoder, decoder, criterion, optimizer,
             targets = pack_padded_sequence(targets, decode_lengths, batch_first=True)[0]
             outputs = pack_padded_sequence(predictions, decode_lengths, batch_first=True)[0]
             loss = criterion(outputs, targets)  # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
+            loss_no_reduction = criterion_no_reduction(outputs, targets)
 
         # update sample probs in batchsampler
-        predicted_sequence = torch.argmax(predictions.detach().cpu(), -1).numpy()
-        text_preds = tokenizer.predict_captions(predicted_sequence)
-        sampler.update_sample_probs(text_true, text_preds, idxs)
+        sample_probs = get_sample_probs(loss_no_reduction, decode_lengths)
+        sampler.update_sample_probs(sample_probs, idxs)
 
-        loss_avg.update(loss.item(), args.train_batch_size)
+        loss_avg.update(loss.item(), batch_size)
         mean_len = lengths.sum().item() / len(lengths)
-        len_avg.update(mean_len, args.train_batch_size)
+        len_avg.update(mean_len, batch_size)
         SCALER.scale(loss).backward()
         torch.nn.utils.clip_grad_norm_(encoder.parameters(),
                                        model_config['encoder_clip_grad_norm'])
@@ -74,7 +85,7 @@ def train_loop(args, data_loader, encoder, decoder, criterion, optimizer,
     return loss_avg.avg, len_avg.avg, loop_time
 
 
-def val_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
+def val_loop(data_loader, encoder, decoder, tokenizer, max_seq_length):
     levenshtein_avg = AverageMeter()
     acc_avg = AverageMeter()
     strat_time = time.time()
@@ -115,6 +126,7 @@ def get_loaders(args, data_csv_train, data_csv_val):
     # create train dataloader with custom batch_sampler
     sampler = SequentialSampler(
         dataset=data_csv_train,
+        # init_sample_probs=data_csv_train['Tokens_len'].values,
         dataset_len=args.epoch_size
     )
     batcher = torch.utils.data.BatchSampler(
@@ -175,6 +187,7 @@ def main(args):
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss()
+    criterion_no_reduction = nn.CrossEntropyLoss(reduction='none')
     params = list(decoder.parameters()) + list(encoder.parameters())
     optimizer = torch.optim.Adam(params, lr=args.learning_rate)
     scheduler = ReduceLROnPlateau(optimizer=optimizer,
@@ -185,19 +198,21 @@ def main(args):
     best_acc = -np.inf
     for epoch in range(10000):
         loss_avg, len_avg, loop_time = \
-            train_loop(args, train_loader, encoder, decoder,
-                       criterion, optimizer, tokenizer, sampler)
+            train_loop(train_loader, encoder, decoder, criterion, optimizer,
+                       sampler, criterion_no_reduction)
         for param_group in optimizer.param_groups:
             lr = param_group['lr']
         print(f'\nEpoch {epoch}, Loss: {loss_avg:.4f}, '
               f'Avg seq length: {len_avg:.2f}, '
+              f'Max sample prob: {sampler.init_sample_probs.max():.4f}, '
               f'LR: {lr:.7f}, loop_time: {loop_time}')
-        print(np.unique(sampler.init_sample_probs, return_counts=True))
 
         levenshtein_avg, acc_avg, loop_time = val_loop(
-            args, val_loader, encoder, decoder, tokenizer, max_seq_length)
+            val_loader, encoder, decoder, tokenizer, max_seq_length)
         print(f'Validation, Levenshtein: {levenshtein_avg:.4f}, '
               f'acc: {acc_avg:.4f}, loop_time: {loop_time}')
+        probs_csv = pd.DataFrame(data=sampler.init_sample_probs, columns=["sample_probs"])
+        probs_csv.to_csv(os.path.join(args.model_path, 'sample_probs.csv'), index=False)
 
         scheduler.step(acc_avg)
 
