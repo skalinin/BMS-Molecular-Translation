@@ -16,7 +16,7 @@ from bms.metrics import (
     AverageMeter, get_levenshtein_score, get_accuracy, sec2min
 )
 from bms.model_config import model_config
-from bms.utils import load_pretrain_model, make_dir
+from bms.utils import load_pretrain_model, make_dir, WeightsRemover
 
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -194,8 +194,12 @@ def main(args):
                                   mode='max',
                                   factor=args.ReduceLROnPlateau_factor,
                                   patience=args.ReduceLROnPlateau_patience)
-    saved_weights_paths = []
+
+    encoder_weights_remover = WeightsRemover()
+    decoder_weights_remover = WeightsRemover()
+    sample_probs_remover = WeightsRemover()
     best_acc = -np.inf
+
     for epoch in range(10000):
         loss_avg, len_avg, loop_time = \
             train_loop(train_loader, encoder, decoder, criterion, optimizer,
@@ -211,27 +215,26 @@ def main(args):
             val_loader, encoder, decoder, tokenizer, max_seq_length)
         print(f'Validation, Levenshtein: {levenshtein_avg:.4f}, '
               f'acc: {acc_avg:.4f}, loop_time: {loop_time}')
-        probs_csv = pd.DataFrame(data=sampler.init_sample_probs, columns=["sample_probs"])
-        probs_csv.to_csv(os.path.join(args.model_path, 'sample_probs.csv'), index=False)
+        probs_csv_save_path = os.path.join(args.model_path,
+                                           f'sample_probs-{epoch}.csv')
+        probs_csv = pd.DataFrame(data=sampler.init_sample_probs,
+                                 columns=["sample_probs"])
+        probs_csv.to_csv(probs_csv_save_path, index=False)
+        sample_probs_remover(probs_csv_save_path)
 
         scheduler.step(acc_avg)
 
         if acc_avg > best_acc:
             best_acc = acc_avg
             encoder_save_path = os.path.join(
-                args.model_path, f'encoder-{epoch}-{acc_avg:.4f}.ckpt')
+                args.model_path, f'encoder-{epoch}-{acc_avg:.3f}.ckpt')
             decoder_save_path = os.path.join(
-                args.model_path, f'decoder-{epoch}-{acc_avg:.4f}.ckpt')
+                args.model_path, f'decoder-{epoch}-{acc_avg:.3f}.ckpt')
             torch.save(encoder.state_dict(), encoder_save_path)
             torch.save(decoder.state_dict(), decoder_save_path)
-            saved_weights_paths.append((encoder_save_path, decoder_save_path))
             print('Val weights saved')
-            if len(saved_weights_paths) > args.max_weights_to_save:
-                old_weights_paths = saved_weights_paths.pop(0)
-                for old_weights_path in old_weights_paths:
-                    if os.path.exists(old_weights_path):
-                        os.remove(old_weights_path)
-                        print(f"Model removed '{old_weights_path}'")
+            encoder_weights_remover(encoder_save_path)
+            decoder_weights_remover(decoder_save_path)
 
 
 if __name__ == '__main__':
@@ -252,7 +255,6 @@ if __name__ == '__main__':
     parser.add_argument('--transf_prob', type=float, default=0.25)
     parser.add_argument('--ReduceLROnPlateau_factor', type=float, default=0.5)
     parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=15)
-    parser.add_argument('--max_weights_to_save', type=int, default=3)
     parser.add_argument('--loss_threshold_to_validate', type=float, default=0.05)
 
     args = parser.parse_args()

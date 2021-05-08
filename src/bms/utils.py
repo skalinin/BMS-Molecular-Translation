@@ -12,6 +12,20 @@ def make_dir(dir_path):
         os.makedirs(dir_path)
 
 
+class WeightsRemover:
+    def __init__(self, max_weights_to_save=3):
+        self.saved_weights_paths = []
+        self.max_weights_to_save = max_weights_to_save
+
+    def __call__(self, save_path):
+        self.saved_weights_paths.append(save_path)
+        if len(self.saved_weights_paths) > self.max_weights_to_save:
+            old_weights_path = self.saved_weights_paths.pop(0)
+            if os.path.exists(old_weights_path):
+                os.remove(old_weights_path)
+                print(f"Weigths removed '{old_weights_path}'")
+
+
 def load_pretrain_model(weights_path, model, device):
     old_model = torch.load(weights_path, device)
     new_dict = model.state_dict()
