@@ -8,7 +8,6 @@ import os
 import time
 import argparse
 from tqdm import tqdm
-from collections import Counter
 
 from bms.dataset import collate_fn, BMSDataset, SequentialSampler
 from bms.transforms import get_train_transforms, get_val_transforms
@@ -27,16 +26,18 @@ SCALER = torch.cuda.amp.GradScaler()
 torch.backends.cudnn.benchmark = True
 
 
-def train_loop(args, data_loader, encoder, decoder, criterion, optimizer):
+def train_loop(args, data_loader, encoder, decoder, criterion, optimizer,
+               tokenizer, sampler):
     loss_avg = AverageMeter()
     strat_time = time.time()
+    len_avg = AverageMeter()
     if not decoder.training:
         decoder.train()
     if not encoder.training:
         encoder.train()
 
     tqdm_data_loader = tqdm(data_loader, total=len(data_loader), leave=False)
-    for images, captions, lengths, _ in tqdm_data_loader:
+    for images, captions, lengths, text_true, idxs in tqdm_data_loader:
         decoder.zero_grad()
         encoder.zero_grad()
 
@@ -54,7 +55,14 @@ def train_loop(args, data_loader, encoder, decoder, criterion, optimizer):
             outputs = pack_padded_sequence(predictions, decode_lengths, batch_first=True)[0]
             loss = criterion(outputs, targets)  # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
 
+        # update sample probs in batchsampler
+        predicted_sequence = torch.argmax(predictions.detach().cpu(), -1).numpy()
+        text_preds = tokenizer.predict_captions(predicted_sequence)
+        sampler.update_sample_probs(text_true, text_preds, idxs)
+
         loss_avg.update(loss.item(), args.train_batch_size)
+        mean_len = lengths.sum().item() / len(lengths)
+        len_avg.update(mean_len, args.train_batch_size)
         SCALER.scale(loss).backward()
         torch.nn.utils.clip_grad_norm_(encoder.parameters(),
                                        model_config['encoder_clip_grad_norm'])
@@ -63,7 +71,7 @@ def train_loop(args, data_loader, encoder, decoder, criterion, optimizer):
         SCALER.step(optimizer)
         SCALER.update()
     loop_time = sec2min(time.time() - strat_time)
-    return loss_avg.avg, loop_time
+    return loss_avg.avg, len_avg.avg, loop_time
 
 
 def val_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
@@ -76,7 +84,7 @@ def val_loop(args, data_loader, encoder, decoder, tokenizer, max_seq_length):
         encoder.eval()
 
     tqdm_data_loader = tqdm(data_loader, total=len(data_loader), leave=False)
-    for images, _, _, text_true in tqdm_data_loader:
+    for images, _, _, text_true, _ in tqdm_data_loader:
         images = images.to(DEVICE)
         batch_size = len(text_true)
         with torch.cuda.amp.autocast():
@@ -100,51 +108,36 @@ def get_loaders(args, data_csv_train, data_csv_val):
     else:
         print(f'Train dataset len: {data_csv_train.shape[0]}')
 
-    # Make FOLDER_2_FREQ dict for batch sampler.
-    # Make long sequences more frequent in batches, but not to
-    # make rare samples occurred too often to not to overtrain the model.
-    FOLDER_2_FREQ = {}
-    min_len = min(data_csv_train['Tokens_len'].values)
-    max_len = max(data_csv_train['Tokens_len'].values)
-    len2samples = Counter(data_csv_train['Tokens_len'].values)
-    total_samples = sum(len2samples.values())
-    for i in range(min_len, max_len+1):
-        FOLDER_2_FREQ[i] = 1 + (i**4) * (len2samples[i] / total_samples)
-
     train_transform = get_train_transforms(model_config['image_height'],
                                            model_config['image_width'],
                                            args.transf_prob)
-    train_dataset = BMSDataset(
-        data_csv=data_csv_train,
-        transform=train_transform
-    )
+    train_dataset = BMSDataset(data_csv_train, train_transform)
     # create train dataloader with custom batch_sampler
     sampler = SequentialSampler(
-        data_csv_train, FOLDER_2_FREQ, args.epoch_size, args.train_batch_size)
+        dataset=data_csv_train,
+        dataset_len=args.epoch_size
+    )
     batcher = torch.utils.data.BatchSampler(
         sampler, batch_size=args.train_batch_size, drop_last=True)
     train_loader = torch.utils.data.DataLoader(
         dataset=train_dataset,
         batch_sampler=batcher,
         num_workers=args.num_workers,
-        prefetch_factor=4,
+        prefetch_factor=args.prefetch_factor,
         collate_fn=collate_fn
     )
 
     # create val dataset and dataloader
-    val_transform = get_val_transforms(
-        model_config['image_height'], model_config['image_width'])
-    val_dataset = BMSDataset(
-        data_csv=data_csv_val,
-        transform=val_transform
-    )
+    val_transform = get_val_transforms(model_config['image_height'],
+                                       model_config['image_width'])
+    val_dataset = BMSDataset(data_csv_val, val_transform)
     val_loader = torch.utils.data.DataLoader(
         dataset=val_dataset,
         batch_size=args.val_batch_size,
         num_workers=args.num_workers,
         collate_fn=collate_fn
     )
-    return train_loader, val_loader
+    return train_loader, val_loader, sampler
 
 
 def main(args):
@@ -157,7 +150,7 @@ def main(args):
     make_dir(args.model_path)
 
     tokenizer = torch.load(model_config["paths"]["tokenizer"])
-    train_loader, val_loader = get_loaders(args, train_csv, val_csv)
+    train_loader, val_loader, sampler = get_loaders(args, train_csv, val_csv)
 
     # Build the models
     encoder = EncoderCNN()
@@ -184,54 +177,46 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
     params = list(decoder.parameters()) + list(encoder.parameters())
     optimizer = torch.optim.Adam(params, lr=args.learning_rate)
-    scheduler = ReduceLROnPlateau(optimizer,
+    scheduler = ReduceLROnPlateau(optimizer=optimizer,
+                                  mode='max',
                                   factor=args.ReduceLROnPlateau_factor,
                                   patience=args.ReduceLROnPlateau_patience)
-
-    best_loss = np.inf
-    best_loss_for_validation = np.inf
     saved_weights_paths = []
-
-    levenshtein_avg, acc_avg, loop_time = val_loop(
-        args, val_loader, encoder, decoder, tokenizer, max_seq_length)
-    print('\n Validation, Levenshtein: {:.4f}, acc: {:.4f}, loop_time: {}'.format(
-        levenshtein_avg, acc_avg, loop_time))
+    best_acc = -np.inf
     for epoch in range(10000):
-        loss_avg, loop_time = train_loop(args, train_loader, encoder, decoder,
-                                         criterion, optimizer)
+        loss_avg, len_avg, loop_time = \
+            train_loop(args, train_loader, encoder, decoder,
+                       criterion, optimizer, tokenizer, sampler)
         for param_group in optimizer.param_groups:
             lr = param_group['lr']
-        print('Epoch {}, Loss: {:.4f}, LR: {:.7f}, loop_time: {}'.format(
-            epoch, loss_avg, lr, loop_time))
+        print(f'\nEpoch {epoch}, Loss: {loss_avg:.4f}, '
+              f'Avg seq length: {len_avg:.2f}, '
+              f'LR: {lr:.7f}, loop_time: {loop_time}')
+        print(np.unique(sampler.init_sample_probs, return_counts=True))
 
-        scheduler.step(loss_avg)
+        levenshtein_avg, acc_avg, loop_time = val_loop(
+            args, val_loader, encoder, decoder, tokenizer, max_seq_length)
+        print(f'Validation, Levenshtein: {levenshtein_avg:.4f}, '
+              f'acc: {acc_avg:.4f}, loop_time: {loop_time}')
 
-        if loss_avg < best_loss:
-            best_loss = loss_avg
-            print('Val weights saved')
+        scheduler.step(acc_avg)
+
+        if acc_avg > best_acc:
+            best_acc = acc_avg
             encoder_save_path = os.path.join(
-                args.model_path,
-                'encoder-{}-{:.4f}.ckpt'.format(epoch, loss_avg))
+                args.model_path, f'encoder-{epoch}-{acc_avg:.4f}.ckpt')
             decoder_save_path = os.path.join(
-                args.model_path,
-                'decoder-{}-{:.4f}.ckpt'.format(epoch, loss_avg))
+                args.model_path, f'decoder-{epoch}-{acc_avg:.4f}.ckpt')
             torch.save(encoder.state_dict(), encoder_save_path)
             torch.save(decoder.state_dict(), decoder_save_path)
-            saved_weights_paths.append(
-                (encoder_save_path, decoder_save_path)
-            )
+            saved_weights_paths.append((encoder_save_path, decoder_save_path))
+            print('Val weights saved')
             if len(saved_weights_paths) > args.max_weights_to_save:
                 old_weights_paths = saved_weights_paths.pop(0)
                 for old_weights_path in old_weights_paths:
                     if os.path.exists(old_weights_path):
                         os.remove(old_weights_path)
                         print(f"Model removed '{old_weights_path}'")
-        if loss_avg < best_loss_for_validation * (1 - args.loss_threshold_to_validate):
-            best_loss_for_validation = loss_avg
-            levenshtein_avg, acc_avg, loop_time = val_loop(
-                args, val_loader, encoder, decoder, tokenizer, max_seq_length)
-            print('\n Validation, Levenshtein: {:.4f}, acc: {:.4f}, loop_time: {}'.format(
-                levenshtein_avg, acc_avg, loop_time))
 
 
 if __name__ == '__main__':
@@ -247,10 +232,11 @@ if __name__ == '__main__':
     parser.add_argument('--val_batch_size', type=int, default=256)
     parser.add_argument('--epoch_size', type=int, default=200000)
     parser.add_argument('--num_workers', type=int, default=8)
+    parser.add_argument('--prefetch_factor', type=int, default=4)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     parser.add_argument('--transf_prob', type=float, default=0.25)
     parser.add_argument('--ReduceLROnPlateau_factor', type=float, default=0.5)
-    parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=4)
+    parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=15)
     parser.add_argument('--max_weights_to_save', type=int, default=3)
     parser.add_argument('--loss_threshold_to_validate', type=float, default=0.05)
 

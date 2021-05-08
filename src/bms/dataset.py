@@ -29,30 +29,18 @@ def build_batches(sentences, batch_size, num_chunks_in_batch=1):
     return batch_ordered_sentences
 
 
-def sample_probs_normalization(sample_probs):
-    """Probabilities normalization to make them sum to 1."""
-    sample_probs = sample_probs / sample_probs.sum()
-    return sample_probs
-
-
 class SequentialSampler(Sampler):
     """Make sequence of dataset indexes for batch sampler.
 
     Args:
         dataset (torch.utils.data.Dataset): Torch dataset or ConcatDataset
-        sample_probs (list, optional): list of samples' probabilities to be 
-        dded in batch. If None probs for all samples would be the same.
-        The length of the list must be equal to the length of the dataset.
-        normalize_sample_probs (bool, optional): Normalize sample_probs to
-            sum to 1. Sum might not be equal to 1 if probs are too small.
         dataset_len (int, optional): Length of output dataset (by default it
             is equal to the length of the input dataset).
         batch_size (int, optional): Batch size, only used in smartbatching.
         smart_batching (bool, optional): To use smartbatching, default is False.
     """
     def __init__(
-        self, dataset, sample_probs=None, normalize_sample_probs=True,
-        dataset_len=None, batch_size=None, smart_batching=False
+        self, dataset, dataset_len=None, batch_size=None, smart_batching=False
     ):
         self.dataset = dataset
         if dataset_len is not None:
@@ -61,15 +49,10 @@ class SequentialSampler(Sampler):
             self.dataset_len = len(self.dataset)
         self.batch_size = batch_size
         self.smart_batching = smart_batching
-
-        if sample_probs is not None:
-            self.sample_probs = np.array(sample_probs)
-        else:
-            self.sample_probs = np.array([1 for i in range(len(self.dataset))])
-        assert len(self.sample_probs) == len(self.dataset), "The length of the \
-            sample_probs must be equal to the length of the dataset."
-        if normalize_sample_probs:
-            self.sample_probs = sample_probs_normalization(self.sample_probs)
+        self.min_prob = 1.
+        # list of samples probabilities to be added in batch
+        self.init_sample_probs = \
+            np.array([self.min_prob for i in range(len(self.dataset))])
 
     def smart_batches(self, dataset_indexes):
         """Sort inexex by samples length to make LSTM training faster."""
@@ -82,9 +65,24 @@ class SequentialSampler(Sampler):
         batched_sorted_indexes = build_batches(sorted_indexes, self.batch_size)
         return batched_sorted_indexes
 
+    def _sample_probs_normalization(self):
+        """Probabilities normalization to make them sum to 1.
+
+        Sum might not be equal to 1 if probs are too small.
+        """
+        return self.init_sample_probs / self.init_sample_probs.sum()
+
+    def update_sample_probs(self, text_true, text_preds, idxs, k=5):
+        for true, pred, idx in zip(text_true, text_preds, idxs):
+            if true != pred:
+                self.init_sample_probs[idx] = self.min_prob * k
+            else:
+                self.init_sample_probs[idx] = self.min_prob / k
+
     def __iter__(self):
+        sample_probs = self._sample_probs_normalization()
         dataset_indexes = np.random.choice(
-            len(self.dataset), self.dataset_len, p=self.sample_probs)
+            len(self.dataset), self.dataset_len, p=sample_probs)
         if self.smart_batching:
             dataset_indexes = self.smart_batches(dataset_indexes)
         return iter(dataset_indexes)
