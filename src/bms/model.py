@@ -53,25 +53,22 @@ class DecoderWithAttention(nn.Module):
     """
 
     def __init__(self, attention_dim, embed_dim, decoder_dim, vocab_size,
-                 device, encoder_dim=1536, dropout=0.5):
+                 device, encoder_dim=1536):
         """
         :param attention_dim: input size of attention network
         :param embed_dim: input size of embedding network
         :param decoder_dim: input size of decoder network
         :param vocab_size: total number of characters used in training
         :param encoder_dim: input size of encoder network
-        :param dropout: dropout rate
         """
         super(DecoderWithAttention, self).__init__()
         self.attention_dim = attention_dim
         self.embed_dim = embed_dim
         self.decoder_dim = decoder_dim
         self.vocab_size = vocab_size
-        self.dropout = dropout
         self.device = device
         self.attention = Attention(encoder_dim, decoder_dim, attention_dim)  # attention network
         self.embedding = nn.Embedding(vocab_size, embed_dim)  # embedding layer
-        self.dropout = nn.Dropout(p=self.dropout)
         self.decode_step = nn.LSTMCell(embed_dim + encoder_dim, decoder_dim, bias=True)  # decoding LSTMCell
         self.init_h = nn.Linear(encoder_dim, decoder_dim)  # linear layer to find initial hidden state of LSTMCell
         self.init_c = nn.Linear(encoder_dim, decoder_dim)  # linear layer to find initial cell state of LSTMCell
@@ -122,7 +119,7 @@ class DecoderWithAttention(nn.Module):
             h, c = self.decode_step(
                 torch.cat([embeddings[:batch_size_t, t, :], attention_weighted_encoding], dim=1),
                 (h[:batch_size_t], c[:batch_size_t]))  # (batch_size_t, decoder_dim)
-            preds = self.fc(self.dropout(h))  # (batch_size_t, vocab_size)
+            preds = self.fc(h)  # (batch_size_t, vocab_size)
             predictions[:batch_size_t, t, :] = preds
         return predictions, decode_lengths
 
@@ -145,7 +142,7 @@ class DecoderWithAttention(nn.Module):
             h, c = self.decode_step(
                 torch.cat([embeddings, attention_weighted_encoding], dim=1),
                 (h, c))  # (batch_size_t, decoder_dim)
-            preds = self.fc(self.dropout(h))  # (batch_size_t, vocab_size)
+            preds = self.fc(h)  # (batch_size_t, vocab_size)
             predictions[:, t, :] = preds
             embeddings = self.embedding(torch.argmax(preds, -1))
         return predictions
