@@ -124,9 +124,15 @@ def get_loaders(args, data_csv_train, data_csv_val):
                                            args.transf_prob)
     train_dataset = BMSDataset(data_csv_train, train_transform)
     # create train dataloader with custom batch_sampler
+    if args.sample_probs_csv_path:
+        df = pd.read_csv(args.sample_probs_csv_path)
+        init_sample_probs = df['sample_probs'].values
+        print('Load sample probs from csv')
+    else:
+        init_sample_probs = None
     sampler = SequentialSampler(
         dataset=data_csv_train,
-        # init_sample_probs=data_csv_train['Tokens_len'].values,
+        init_sample_probs=init_sample_probs,
         dataset_len=args.epoch_size
     )
     batcher = torch.utils.data.BatchSampler(
@@ -176,8 +182,7 @@ def main(args):
         embed_dim=model_config['embed_dim'],
         decoder_dim=model_config['decoder_dim'],
         vocab_size=len(tokenizer),
-        device=DEVICE,
-        dropout=model_config['dropout'],
+        device=DEVICE
     )
     if args.decoder_pretrain:
         states = load_pretrain_model(args.decoder_pretrain, decoder, DEVICE)
@@ -246,6 +251,8 @@ if __name__ == '__main__':
                         help='Encoder pretrain path')
     parser.add_argument('--decoder_pretrain', type=str, default='',
                         help='Decoder pretrain path')
+    parser.add_argument('--sample_probs_csv_path', type=str, default='',
+                        help='Path to csv with samples probs for batch sampler')
     parser.add_argument('--train_batch_size', type=int, default=50)
     parser.add_argument('--val_batch_size', type=int, default=256)
     parser.add_argument('--epoch_size', type=int, default=200000)
