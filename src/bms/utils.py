@@ -3,6 +3,7 @@ import numpy as np
 import os
 import cv2
 from multiprocessing import Pool
+import math
 from rdkit import Chem
 from rdkit.Chem import Draw
 
@@ -12,7 +13,19 @@ def make_dir(dir_path):
         os.makedirs(dir_path)
 
 
-class WeightsRemover:
+def sec2min(s):
+    m = math.floor(s / 60)
+    s -= m * 60
+    return '%dm %ds' % (m, s)
+
+
+class FilesLimitControl:
+    """Delete files from the disk if there are more files than the set limit.
+
+    Args:
+        max_weights_to_save (int, optional): The number of files that will be
+            stored on the disk at the same time. Default is 3.
+    """
     def __init__(self, max_weights_to_save=3):
         self.saved_weights_paths = []
         self.max_weights_to_save = max_weights_to_save
@@ -27,6 +40,8 @@ class WeightsRemover:
 
 
 def load_pretrain_model(weights_path, model, device):
+    """Load all pretrain model or as many layers as possible.
+    """
     old_model = torch.load(weights_path, device)
     new_dict = model.state_dict()
     old_dict = old_model
@@ -47,8 +62,8 @@ def get_file_path(image_id, main_folder='train'):
     )
 
 
+# Source https://gist.github.com/lucaswiman/1e877a164a69f78694f845eab45c381a
 def sp_noise(image):
-    # https://gist.github.com/lucaswiman/1e877a164a69f78694f845eab45c381a
     if len(image.shape) == 2:
         black = 0
         white = 255
@@ -66,11 +81,12 @@ def sp_noise(image):
     return image
 
 
+# Source https://www.kaggle.com/tuckerarrants/inchi-allowed-external-data
+# https://www.kaggle.com/stainsby/improved-synthetic-data-for-bms-competition-v3
 def noisy_smile(smile, save_path, add_noise=True, crop_and_pad=True):
-    # Code from https://www.kaggle.com/tuckerarrants/inchi-allowed-external-data
+    """Create synth smile mol images and augment it."""
     mol = Chem.MolFromSmiles(smile)
     d = Draw.rdMolDraw2D.MolDraw2DCairo(300, 300)
-    # https://www.kaggle.com/stainsby/improved-synthetic-data-for-bms-competition-v3
     Chem.rdDepictor.SetPreferCoordGen(True)
     d.drawOptions().maxFontSize = 14
     d.drawOptions().multipleBondOffset = np.random.uniform(0.05, 0.2)
@@ -83,9 +99,10 @@ def noisy_smile(smile, save_path, add_noise=True, crop_and_pad=True):
     nparr = np.frombuffer(img, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
     # crop
-    crop_rows = img[~np.all(img==255, axis=1), :]
-    img = crop_rows[:, ~np.all(crop_rows==255, axis=0)]
-    img = cv2.copyMakeBorder(img, 30, 30, 30, 30, cv2.BORDER_CONSTANT, value=255)
+    crop_rows = img[~np.all(img == 255, axis=1), :]
+    img = crop_rows[:, ~np.all(crop_rows == 255, axis=0)]
+    img = cv2.copyMakeBorder(img, 30, 30, 30, 30, cv2.BORDER_CONSTANT,
+                             value=255)
     img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
     # noise
     img = sp_noise(img)

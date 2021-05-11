@@ -12,11 +12,9 @@ from tqdm import tqdm
 from bms.dataset import collate_fn, BMSDataset, SequentialSampler
 from bms.transforms import get_train_transforms, get_val_transforms
 from bms.model import EncoderCNN, DecoderWithAttention
-from bms.metrics import (
-    AverageMeter, get_levenshtein_score, get_accuracy, sec2min
-)
+from bms.metrics import AverageMeter, get_levenshtein_score, get_accuracy
 from bms.model_config import model_config
-from bms.utils import load_pretrain_model, make_dir, WeightsRemover
+from bms.utils import load_pretrain_model, make_dir, FilesLimitControl, sec2min
 
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -182,7 +180,8 @@ def main(args):
         embed_dim=model_config['embed_dim'],
         decoder_dim=model_config['decoder_dim'],
         vocab_size=len(tokenizer),
-        device=DEVICE
+        device=DEVICE,
+        dropout=model_config['dropout'],
     )
     if args.decoder_pretrain:
         states = load_pretrain_model(args.decoder_pretrain, decoder, DEVICE)
@@ -200,9 +199,9 @@ def main(args):
                                   factor=args.ReduceLROnPlateau_factor,
                                   patience=args.ReduceLROnPlateau_patience)
 
-    encoder_weights_remover = WeightsRemover()
-    decoder_weights_remover = WeightsRemover()
-    sample_probs_remover = WeightsRemover()
+    encoder_limit_control = FilesLimitControl()
+    decoder_limit_control = FilesLimitControl()
+    sample_limit_control = FilesLimitControl()
     best_acc = -np.inf
 
     for epoch in range(10000):
@@ -220,12 +219,6 @@ def main(args):
             val_loader, encoder, decoder, tokenizer, max_seq_length)
         print(f'Validation, Levenshtein: {levenshtein_avg:.4f}, '
               f'acc: {acc_avg:.4f}, loop_time: {loop_time}')
-        probs_csv_save_path = os.path.join(args.model_path,
-                                           f'sample_probs-{epoch}.csv')
-        probs_csv = pd.DataFrame(data=sampler.init_sample_probs,
-                                 columns=["sample_probs"])
-        probs_csv.to_csv(probs_csv_save_path, index=False)
-        sample_probs_remover(probs_csv_save_path)
 
         scheduler.step(acc_avg)
 
@@ -238,8 +231,15 @@ def main(args):
             torch.save(encoder.state_dict(), encoder_save_path)
             torch.save(decoder.state_dict(), decoder_save_path)
             print('Val weights saved')
-            encoder_weights_remover(encoder_save_path)
-            decoder_weights_remover(decoder_save_path)
+            encoder_limit_control(encoder_save_path)
+            decoder_limit_control(decoder_save_path)
+
+            probs_csv_save_path = os.path.join(args.model_path,
+                                               f'sample_probs-{epoch}.csv')
+            probs_csv = pd.DataFrame(data=sampler.init_sample_probs,
+                                     columns=["sample_probs"])
+            probs_csv.to_csv(probs_csv_save_path, index=False)
+            sample_limit_control(probs_csv_save_path)
 
 
 if __name__ == '__main__':

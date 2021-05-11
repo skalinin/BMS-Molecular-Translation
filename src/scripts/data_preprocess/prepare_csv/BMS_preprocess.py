@@ -13,6 +13,8 @@ VAL_CSV_PATH = '/workdir/data/bms-molecular-translation/val_labels_processd.csv'
 
 
 def preprocess_data():
+    """Preprrocess kaggle BMS csv."""
+
     train_csv = pd.read_csv(INIT_CSV_PATH)
 
     train_csv['image_path'] = train_csv['image_id'].progress_apply(

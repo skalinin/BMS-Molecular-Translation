@@ -1,10 +1,9 @@
-import time
-import math
 import Levenshtein
 import numpy as np
 
 
 def get_levenshtein_score(y_true, y_pred):
+    """Calc Levenshtein distance between two list of strings."""
     scores = []
     for true, pred in zip(y_true, y_pred):
         score = Levenshtein.distance(true, pred)
@@ -14,27 +13,12 @@ def get_levenshtein_score(y_true, y_pred):
 
 
 def get_accuracy(y_true, y_pred):
+    """Calc accuracy between two list of strings."""
     scores = []
     for true, pred in zip(y_true, y_pred):
         scores.append(true == pred)
     avg_score = np.mean(scores)
     return avg_score
-
-
-def sec2min(s):
-    m = math.floor(s / 60)
-    s -= m * 60
-    return '%dm %ds' % (m, s)
-
-
-def time_remain(since, percent):
-    # start = time.time()
-    # time_remain(start, (i+1)/total_step)
-    now = time.time()
-    s = now - since
-    es = s / (percent)
-    rs = es - s
-    return '%s (remain %s)' % (sec2min(s), sec2min(rs))
 
 
 class AverageMeter:

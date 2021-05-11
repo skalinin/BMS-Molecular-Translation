@@ -37,10 +37,10 @@ class SequentialSampler(Sampler):
         dataset_len (int, optional): Length of output dataset (by default it
             is equal to the length of the input dataset).
         batch_size (int, optional): Batch size, only used in smartbatching.
-        smart_batching (bool, optional): To use smartbatching, default is False.
+        smart_batching (bool, optional): Apply smartbatching, default is False.
         init_sample_probs (list, optional): list of samples' probabilities to
-        be added in batch. If None probs for all samples would be the same.
-        The length of the list must be equal to the length of the dataset.
+            be added in batch. If None probs for all samples would be the same.
+            The length of the list must be equal to the length of the dataset.
     """
     def __init__(
         self, dataset, dataset_len=None, batch_size=None, smart_batching=False,
@@ -64,7 +64,9 @@ class SequentialSampler(Sampler):
                 of the sample_probs must be equal to the len of the dataset."
 
     def smart_batches(self, dataset_indexes):
-        """Sort inexex by samples length to make LSTM training faster."""
+        """Sort inexex by samples length to make LSTM training faster.
+        May affect the quality of the training.
+        """
         samples_len = \
             self.dataset.iloc[dataset_indexes]['Tokens_len'].values
         sorted_indexes = [
@@ -76,14 +78,16 @@ class SequentialSampler(Sampler):
 
     def _sample_probs_normalization(self):
         """Probabilities normalization to make them sum to 1.
-
         Sum might not be equal to 1 if probs are too small.
         """
         return self.init_sample_probs / self.init_sample_probs.sum()
 
-    def update_sample_probs(self, probs, idxs):
+    def update_sample_probs(self, probs, idxs, k=0.5):
+        """Update probabilities of samples to be added in batch on the
+        next epoch.
+        """
         for prob, idx in zip(probs, idxs):
-            self.init_sample_probs[idx] = prob
+            self.init_sample_probs[idx] = prob ** k
 
     def __iter__(self):
         sample_probs = self._sample_probs_normalization()

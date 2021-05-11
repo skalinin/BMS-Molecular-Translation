@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from tqdm import tqdm
 
-from bms.utils import noisy_smile, make_dir, generate_synth_images
+from bms.utils import make_dir, generate_synth_images
 
 tqdm.pandas()
 
@@ -14,7 +14,11 @@ NUM_PRCESS = 8
 
 
 def preprocess_data():
-    # smiles targets from https://www.kaggle.com/cpmpml/lg-smiles-solutions
+    """Preprocess LG SMILES csv and generate synth images.
+
+    LG SMILES targets from https://www.kaggle.com/cpmpml/lg-smiles-solutions
+    """
+
     make_dir(IMAGES_PATH)
 
     data_csv = pd.read_csv(INIT_CSV_PATH)

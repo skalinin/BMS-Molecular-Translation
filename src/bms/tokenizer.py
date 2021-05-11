@@ -3,18 +3,22 @@ import re
 
 
 def inchi2smile(inchi):
+    """Convers inchi string to smile."""
     return Chem.MolToSmiles(Chem.MolFromInchi(inchi))
 
 
+# Source https://github.com/XinhaoLi74/SmilesPE/blob/master/SmilesPE
 def atomwise_tokenizer(smi, exclusive_tokens=None):
     """
-    Get from https://github.com/XinhaoLi74/SmilesPE/blob/master/SmilesPE/pretokenizer.py
-
     Tokenize a SMILES molecule at atom-level:
         (1) 'Br' and 'Cl' are two-character tokens
         (2) Symbols with bracket are considered as tokens
-    exclusive_tokens: A list of specifical symbols with bracket you want to keep. e.g., ['[C@@H]', '[nH]'].
-    Other symbols with bracket will be replaced by '[UNK]'. default is `None`.
+
+    Args:
+    smi (str): Smile string.
+    exclusive_tokens (list of str, optional): A list of specifical symbols with
+        bracket you want to keep. e.g., ['[C@@H]', '[nH]']. Other symbols with
+        bracket will be replaced by '[UNK]'. default is `None`.
     """
     pattern = "(\[[^\]]+]|Br?|Cl?|N|O|S|P|F|I|b|c|n|o|s|p|\(|\)|\.|=|#|-|\+|\\\\|\/|:|~|@|\?|>|\*|\$|\%[0-9]{2}|[0-9])"
     regex = re.compile(pattern)
@@ -30,10 +34,7 @@ def atomwise_tokenizer(smi, exclusive_tokens=None):
 
 
 class Tokenizer:
-    """Text tokenizer.
-
-    All raw text should be preprocess to separate tokens by spaces.
-    """
+    """Text tokenizer."""
 
     def __init__(self):
         self.token2idx = {}

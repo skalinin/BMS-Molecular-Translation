@@ -3,7 +3,6 @@ import torchvision
 import cv2
 import random
 import numpy as np
-from scipy.stats import multivariate_normal
 
 
 class Scale:
@@ -32,12 +31,6 @@ class ToTensor:
         return arr
 
 
-class AddChannel:
-    def __call__(self, arr):
-        arr = arr.unsqueeze(0)
-        return arr
-
-
 class MoveChannels:
     def __init__(self, to_channels_first=True):
         self.to_channels_first = to_channels_first
@@ -60,19 +53,15 @@ class UseWithProb:
         return image
 
 
-class RandomRotate:
-    def __call__(self, img):
-        return img_rotate90(img, k=random.randint(1, 3))
-
-
 def img_rotate90(img, k=1):
     """Rotate image.
 
     np.rot90() corrupts an opencv image
     https://stackoverflow.com/questions/20843544/np-rot90-corrupts-an-opencv-image
     https://github.com/opencv/opencv/issues/18120
-    np.rot90 works a lot faster then cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    but .copy() workaround slow down np-realization to 4-5 times, so use cv2.rotate instead
+    np.rot90 works a lot faster then
+    cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE) but .copy() workaround slow
+    down np-realization to 4-5 times, so use cv2.rotate instead
     """
     assert k in [1, 2, 3], "k must be 1, 2 or 3"
 
@@ -106,144 +95,14 @@ class VerticalFlip(Flip):
         super().__init__(0)
 
 
-class RandomCrop:
-    def __init__(self, rnd_crop_min, rnd_crop_max=1):
-        self.factor_max = rnd_crop_max
-        self.factor_min = rnd_crop_min
-
-    def __call__(self, img, mask=None):
-        factor = random.uniform(self.factor_min, self.factor_max)
-        size = (
-            int(img.shape[1]*factor),
-            int(img.shape[0]*factor)
-        )
-        img, x1, y1 = random_crop(img, size)
-        if mask is None:
-            return img
-        mask = img_crop(mask, (x1, y1, x1 + size[0], y1 + size[1]))
-        return img, mask
-
-
-def img_crop(img, box):
-    return img[box[1]:box[3], box[0]:box[2]]
-
-
-def img_size(image: np.ndarray):
-    return image.shape[1], image.shape[0]
-
-
-def random_crop(img, size):
-    tw = size[0]
-    th = size[1]
-    w, h = img_size(img)
-    if ((w - tw) > 0) and ((h - th) > 0):
-        x1 = random.randint(0, w - tw)
-        y1 = random.randint(0, h - th)
-    else:
-        x1 = 0
-        y1 = 0
-    img_return = img_crop(img, (x1, y1, x1 + tw, y1 + th))
-    return img_return, x1, y1
-
-
-# Image saturation fix
-def satur_img(img):
-    return np.clip(img, 0, 255)
-
-
-class RandomShadow:
-    def __init__(self):
-        pass
-
-    def __call__(self, image, mask=None):
-        row, col, ch = image.shape
-        # We take a random point at the top for the x coordinate and then
-        # another random x-coordinate at the bottom and join them to create
-        # a shadow zone on the image.
-        top_y = col * np.random.uniform()
-        top_x = 0
-        bot_x = row
-        bot_y = col * np.random.uniform()
-        img_hls = cv2.cvtColor(image, cv2.COLOR_RGB2HLS)
-        shadow_mask = 0 * img_hls[:, :, 1]
-        X_m = np.mgrid[0:image.shape[0], 0:image.shape[1]][0]
-        Y_m = np.mgrid[0:image.shape[0], 0:image.shape[1]][1]
-
-        shadow_mask[((X_m - top_x) * (bot_y - top_y) - (bot_x - top_x) * (Y_m - top_y) >= 0)] = 1
-
-        random_bright = .25 + .7 * np.random.uniform()
-        cond0 = shadow_mask == 0
-        cond1 = shadow_mask == 1
-
-        if np.random.randint(2) == 1:
-            img_hls[:, :, 1][cond1] = img_hls[:, :, 1][cond1] * random_bright
-        else:
-            img_hls[:, :, 1][cond0] = img_hls[:, :, 1][cond0] * random_bright
-        image = cv2.cvtColor(img_hls, cv2.COLOR_HLS2RGB)
-
-        image = satur_img(image)
-        image = image.astype(np.uint8)
-
-        if mask is not None:
-            return image, mask
-        else:
-            return image
-
-
-class ImageGlare:
-    def __init__(self, glare_mean, glare_deviation):
-        self.glare_mean = glare_mean
-        self.glare_deviation = glare_deviation
-
-    def __call__(self, img, mask=None):
-        self.glare_bright = int(random.gauss(
-            self.glare_mean,
-            self.glare_deviation)
-        )
-        # sometimes error because of random cov matrix:
-        # "the input matrix must be positive semidefinite"
-        while True:
-            try:
-                size_blob = random.randint(1, 4)
-                n1 = np.random.exponential(scale=0.5)
-                n2 = np.random.exponential(scale=5.0)
-                n3 = np.random.uniform(low=-0.99, high=0.99)
-
-                x, y = np.meshgrid(np.linspace(-size_blob, size_blob, img.shape[1]),
-                                   np.linspace(-size_blob, size_blob, img.shape[0]))
-                pos = np.dstack((x, y))
-
-                rv = multivariate_normal(
-                    [random.randint(-2, 2), random.randint(-2, 2)],
-                    [
-                        [n1, 0],
-                        [n3, n2]
-                    ]
-                )
-                eps = rv.pdf(pos).max() + 10**(-8)
-                img_blob = rv.pdf(pos) * (self.glare_bright / eps)
-
-                # make "rgb" glare by stacking layer three times
-                img_blob = np.stack((img_blob, img_blob, img_blob), axis=2)
-                img_glare = img + img_blob
-
-                img_glare = satur_img(img_glare)
-                img_glare = img_glare.astype(np.uint8)
-
-                if mask is not None:
-                    return img_glare, mask
-                else:
-                    return img_glare
-            except:
-                pass
-
-
 class RandomGaussianBlur:
-    '''Apply Gaussian blur with random kernel size
+    """Apply Gaussian blur with random kernel size
+
     Args:
         max_ksize (int): maximal size of a kernel to apply, should be odd
         sigma_x (int): Standard deviation
-    '''
+    """
+
     def __init__(self, max_ksize=5, sigma_x=20):
         assert max_ksize % 2 == 1, "max_ksize should be odd"
         self.max_ksize = max_ksize // 2 + 1
@@ -252,7 +111,7 @@ class RandomGaussianBlur:
     def __call__(self, image, mask=None):
         kernal_size = (1, 1)
         while kernal_size == (1, 1):
-            kernal_size = tuple(2 * np.random.randint(0, self.max_ksize, 2) + 1)
+            kernal_size = tuple(2*np.random.randint(0, self.max_ksize, 2) + 1)
         blured_image = cv2.GaussianBlur(image, kernal_size, self.sigma_x)
 
         if mask is None:
@@ -260,106 +119,14 @@ class RandomGaussianBlur:
         return blured_image, mask
 
 
-# Compute linear image transformation img*s+m
-def lin_img(img, s=1.0, m=0.0):
-    img = img.astype(np.int)
-    img = img * s + m
-    img = satur_img(img)
-    img = img.astype(np.uint8)
-    return img
-
-
-def glare(img, n_vert, contr, bright):
-    vert = []
-    w, h = img_size(img)
-    for i in range(random.randint(3, n_vert)):  # Create random vertices
-        new_vert = (random.randint(0, w), random.randint(0, h))
-        vert.append(new_vert)
-    vert = np.array([vert], dtype=np.int32)
-    mask = np.zeros_like(img)
-    ignore_mask_color = (255,) * 3
-    cv2.fillPoly(mask, vert, ignore_mask_color)
-    masked_image = cv2.bitwise_and(img, mask)
-    img[mask > 0] = lin_img(masked_image[mask > 0], contr, bright)
-    return img
-
-
-class RandomBright(object):
-    def __init__(self, contr=0.0, bright=0, n_vert=None):
-        self.contr = contr
-        self.bright = bright
-        self.n_vert = n_vert
-        if self.n_vert is not None:
-            if self.n_vert < 4:
-                self.n_vert = 4
-
-    def __call__(self, img, mask=None):
-        if self.n_vert is not None:
-            self.n_vert_rnd = np.random.randint(3, self.n_vert)
-            bright_f = random.uniform(-self.bright, self.bright)
-            img = glare(img, self.n_vert_rnd, 1.0, bright_f)
-            img = satur_img(img)
-        contr_f = random.uniform(1 - self.contr, 1 + self.contr)  # Contrast
-        bright_f = random.uniform(-self.bright, self.bright)  # Brightness
-        img = lin_img(img, contr_f, bright_f)
-        img = satur_img(img)
-        img = np.uint8(img)
-
-        if mask is None:
-            return img
-        else:
-            return img, mask
-
-
-class GaussNoise:
-    def __init__(self, sigma_sq):
-        self.sigma_sq = sigma_sq
-
-    def __call__(self, img, mask=None):
-        if self.sigma_sq > 0.0:
-            img = self._gauss_noise(img,
-                                    np.random.uniform(0, self.sigma_sq))
-        if mask is None:
-            return img
-        return img, mask
-
-    def _gauss_noise(self, img, sigma_sq):
-        img = img.astype(np.uint32)
-        h, w, c = img.shape
-        gauss = np.random.normal(0, sigma_sq, (h, w))
-        gauss = gauss.reshape(h, w)
-        img = img + np.stack([gauss for i in range(c)], axis=2)
-        img = satur_img(img)
-        img = img.astype(np.uint8)
-        return img
-
-
 class MakeHorizontal:
+    """Rotate image if its height greater than width.
+    """
     def __call__(self, img):
         h, w, _ = img.shape
         if h > w:
             img = img_rotate90(img)
         return img
-
-
-class RescalePaddingImage:
-    def __init__(self, output_height, output_width):
-        self.output_height = output_height
-        self.output_width = output_width
-
-    def __call__(self, image):
-        h, w = image.shape[:2]
-        # width proportional to change in  height
-        new_width = int(w*(self.output_height/h))
-        # new_width cannot be bigger than output_width
-        new_width = min(new_width, self.output_width)
-        image = cv2.resize(image, (new_width, self.output_height),
-                           interpolation=cv2.INTER_LINEAR)
-        if new_width < self.output_width:
-            image = np.pad(image, ((0, 0), (0, self.output_width - new_width), (0, 0)),
-                           'constant', constant_values=255)
-
-        return image
 
 
 class Transpose:
@@ -368,6 +135,8 @@ class Transpose:
 
 
 class RandomTransposeAndFlip:
+    """Rotate image by randomly apply transpose, vertical or horizontal flips.
+    """
     def __init__(self):
         self.transpose = Transpose()
         self.vertical_flip = VerticalFlip()
@@ -385,7 +154,6 @@ class RandomTransposeAndFlip:
 
 def get_train_transforms(output_height, output_width, prob):
     transforms = torchvision.transforms.Compose([
-        UseWithProb(RandomCrop(0.85), prob=prob),
         Scale((output_height, output_width)),
         RandomTransposeAndFlip(),
         UseWithProb(RandomGaussianBlur(max_ksize=3), prob=prob),
