@@ -152,8 +152,79 @@ class RandomTransposeAndFlip:
         return img
 
 
+# source https://www.kaggle.com/michaelwolff/bms-inchi-cropped-img-sizes-for-best-resolution
+class AdaptiveCrop:
+    """Crop mol from image to increase it overall resolution."""
+
+    def __init__(self, contour_min_size=2, small_stuff_size=2,
+                 small_stuff_dist=5, pad_pixels=3):
+        self.contour_min_size = contour_min_size
+        self.small_stuff_size = small_stuff_size
+        self.small_stuff_dist = small_stuff_dist
+        self.pad_pixels = pad_pixels
+
+    def __call__(self, img_init):
+        # preprocess image
+        img = 255 - cv2.cvtColor(img_init, cv2.COLOR_BGR2GRAY)
+        _, thresh = \
+            cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        contours, _ = cv2.findContours(
+            thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[-2:]
+
+        small_stuff = []
+        x_min0, y_min0, x_max0, y_max0 = np.inf, np.inf, 0, 0
+        for cnt in contours:
+            # ignore contours under contour_min_size pixels
+            if len(cnt) < self.contour_min_size:
+                continue
+            x, y, w, h = cv2.boundingRect(cnt)
+            # collect position of small contours starting with contour_min_size pixels
+            if w <= self.small_stuff_size and h <= self.small_stuff_size:
+                small_stuff.append([x, y, x+w, y+h])
+                continue
+            x_min0 = min(x_min0, x)
+            y_min0 = min(y_min0, y)
+            x_max0 = max(x_max0, x + w)
+            y_max0 = max(y_max0, y + h)
+
+        x_min, y_min, x_max, y_max = x_min0, y_min0, x_max0, y_max0
+        # enlarge the found crop box if it cuts out small stuff that is very close by
+        for i in range(len(small_stuff)):
+            if (
+                small_stuff[i][0] < x_min0
+                and small_stuff[i][0] + self.small_stuff_dist >= x_min0
+            ):
+                x_min = small_stuff[i][0]
+            if (
+                small_stuff[i][1] < y_min0
+                and small_stuff[i][1] + self.small_stuff_dist >= y_min0
+            ):
+                y_min = small_stuff[i][1]
+            if (
+                small_stuff[i][2] > x_max0
+                and small_stuff[i][2] - self.small_stuff_dist <= x_max0
+            ):
+                x_max = small_stuff[i][2]
+            if (
+                small_stuff[i][3] > y_max0
+                and small_stuff[i][3] - self.small_stuff_dist <= y_max0
+            ):
+                y_max = small_stuff[i][3]
+
+        # make sure we get the crop within a valid range
+        if self.pad_pixels > 0:
+            y_min = max(0, y_min-self.pad_pixels)
+            y_max = min(img.shape[0], y_max+self.pad_pixels)
+            x_min = max(0, x_min-self.pad_pixels)
+            x_max = min(img.shape[1], x_max+self.pad_pixels)
+
+        img_cropped = img_init[y_min:y_max, x_min:x_max]
+        return img_cropped
+
+
 def get_train_transforms(output_height, output_width, prob):
     transforms = torchvision.transforms.Compose([
+        AdaptiveCrop(),
         Scale((output_height, output_width)),
         RandomTransposeAndFlip(),
         UseWithProb(RandomGaussianBlur(max_ksize=3), prob=prob),
@@ -167,6 +238,7 @@ def get_train_transforms(output_height, output_width, prob):
 def get_val_transforms(output_height, output_width):
     transforms = torchvision.transforms.Compose([
         MakeHorizontal(),
+        AdaptiveCrop(),
         Scale((output_height, output_width)),
         Normalize(),
         MoveChannels(),

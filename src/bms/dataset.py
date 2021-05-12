@@ -82,7 +82,7 @@ class SequentialSampler(Sampler):
         """
         return self.init_sample_probs / self.init_sample_probs.sum()
 
-    def update_sample_probs(self, probs, idxs, k=0.5):
+    def update_sample_probs(self, probs, idxs, k):
         """Update probabilities of samples to be added in batch on the
         next epoch.
         """

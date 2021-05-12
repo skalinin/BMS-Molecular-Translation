@@ -67,7 +67,7 @@ def train_loop(data_loader, encoder, decoder, criterion, optimizer,
 
         # update sample probs in batchsampler
         sample_probs = get_sample_probs(loss_no_reduction, decode_lengths)
-        sampler.update_sample_probs(sample_probs, idxs)
+        sampler.update_sample_probs(sample_probs, idxs, 0.25)
 
         loss_avg.update(loss.item(), batch_size)
         mean_len = lengths.sum().item() / len(lengths)
@@ -212,7 +212,7 @@ def main(args):
             lr = param_group['lr']
         print(f'\nEpoch {epoch}, Loss: {loss_avg:.4f}, '
               f'Avg seq length: {len_avg:.2f}, '
-              f'Max sample prob: {sampler.init_sample_probs.max():.4f}, '
+              f'Samples prob greater 1: {(sampler.init_sample_probs > 1).sum()}, '
               f'LR: {lr:.7f}, loop_time: {loop_time}')
 
         levenshtein_avg, acc_avg, loop_time = val_loop(
