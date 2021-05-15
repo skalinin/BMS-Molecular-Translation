@@ -8,6 +8,7 @@ import os
 import time
 import argparse
 from tqdm import tqdm
+from collections import Counter
 
 from bms.dataset import collate_fn, BMSDataset, SequentialSampler
 from bms.transforms import get_train_transforms, get_val_transforms
@@ -33,6 +34,21 @@ def get_sample_probs(loss_no_reduction, decode_lengths):
         )
         s = s + length
     return sample_probs
+
+
+def get_token_weights(data_csv):
+    tokens_indexes = data_csv['Tokens_indexes'].values
+    token_index2count = Counter(c for clist in tokens_indexes for c in clist)
+
+    token_index2weights = {}
+    for token_index, count in token_index2count.items():
+        token_index2weights[token_index] = 1 + 5 * ((1/count) ** 0.25)
+
+    token_weights = [token_index2weights[idx]
+                     for idx in range(len(token_index2weights))]
+    print('min class weight:', min(token_weights))
+    print('max class weight:', max(token_weights))
+    return torch.FloatTensor(token_weights).to(DEVICE)
 
 
 def train_loop(data_loader, encoder, decoder, criterion, optimizer,
@@ -67,7 +83,7 @@ def train_loop(data_loader, encoder, decoder, criterion, optimizer,
 
         # update sample probs in batchsampler
         sample_probs = get_sample_probs(loss_no_reduction, decode_lengths)
-        sampler.update_sample_probs(sample_probs, idxs, 0.25)
+        sampler.update_sample_probs(sample_probs, idxs, 0.15)
 
         loss_avg.update(loss.item(), batch_size)
         mean_len = lengths.sum().item() / len(lengths)
@@ -190,6 +206,7 @@ def main(args):
     decoder.to(DEVICE)
 
     # Loss and optimizer
+    # class_weigths = get_token_weights(train_csv)
     criterion = nn.CrossEntropyLoss()
     criterion_no_reduction = nn.CrossEntropyLoss(reduction='none')
     params = list(decoder.parameters()) + list(encoder.parameters())
@@ -204,6 +221,10 @@ def main(args):
     sample_limit_control = FilesLimitControl()
     best_acc = -np.inf
 
+    levenshtein_avg, acc_avg, loop_time = val_loop(
+        val_loader, encoder, decoder, tokenizer, max_seq_length)
+    print(f'Validation, Levenshtein: {levenshtein_avg:.4f}, '
+          f'acc: {acc_avg:.4f}, loop_time: {loop_time}')
     for epoch in range(10000):
         loss_avg, len_avg, loop_time = \
             train_loop(train_loader, encoder, decoder, criterion, optimizer,
