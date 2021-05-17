@@ -41,10 +41,12 @@ class SequentialSampler(Sampler):
         init_sample_probs (list, optional): list of samples' probabilities to
             be added in batch. If None probs for all samples would be the same.
             The length of the list must be equal to the length of the dataset.
+        sample_probs_power (int, optional): The degree to which sample probs
+            is raised to make probs smoother/sharper. Default is 1 (no power).
     """
     def __init__(
         self, dataset, dataset_len=None, batch_size=None, smart_batching=False,
-        init_sample_probs=None
+        init_sample_probs=None, sample_probs_power=1
     ):
         self.dataset = dataset
         if dataset_len is not None:
@@ -53,6 +55,8 @@ class SequentialSampler(Sampler):
             self.dataset_len = len(self.dataset)
         self.batch_size = batch_size
         self.smart_batching = smart_batching
+        self.dataset_indexes = np.array([])
+        self.sample_probs_power = sample_probs_power
         if init_sample_probs is None:
             self.init_sample_probs = \
                 np.array([1. for i in range(len(self.dataset))],
@@ -76,26 +80,31 @@ class SequentialSampler(Sampler):
         batched_sorted_indexes = build_batches(sorted_indexes, self.batch_size)
         return batched_sorted_indexes
 
-    def _sample_probs_normalization(self):
+    def _sample_probs_normalization(self, sample_probs):
         """Probabilities normalization to make them sum to 1.
         Sum might not be equal to 1 if probs are too small.
         """
-        return self.init_sample_probs / self.init_sample_probs.sum()
+        return sample_probs / sample_probs.sum()
 
-    def update_sample_probs(self, probs, idxs, k):
+    def _sample_probs_power(self):
+        """Raise the init_sample_probs to the power of sample_probs_power to
+        make probs smoother/sharper."""
+        return self.init_sample_probs ** self.sample_probs_power
+
+    def update_sample_probs(self, probs, idxs):
         """Update probabilities of samples to be added in batch on the
-        next epoch.
-        """
+        next epoch."""
         for prob, idx in zip(probs, idxs):
-            self.init_sample_probs[idx] = prob ** k
+            self.init_sample_probs[idx] = prob
 
     def __iter__(self):
-        sample_probs = self._sample_probs_normalization()
-        dataset_indexes = np.random.choice(
+        sample_probs = self._sample_probs_power()
+        sample_probs = self._sample_probs_normalization(sample_probs)
+        self.dataset_indexes = np.random.choice(
             len(self.dataset), self.dataset_len, p=sample_probs)
         if self.smart_batching:
-            dataset_indexes = self.smart_batches(dataset_indexes)
-        return iter(dataset_indexes)
+            self.dataset_indexes = self.smart_batches(self.dataset_indexes)
+        return iter(self.dataset_indexes)
 
     def __len__(self):
         return self.dataset_len

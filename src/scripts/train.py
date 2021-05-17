@@ -83,7 +83,7 @@ def train_loop(data_loader, encoder, decoder, criterion, optimizer,
 
         # update sample probs in batchsampler
         sample_probs = get_sample_probs(loss_no_reduction, decode_lengths)
-        sampler.update_sample_probs(sample_probs, idxs, 0.15)
+        sampler.update_sample_probs(sample_probs, idxs)
 
         loss_avg.update(loss.item(), batch_size)
         mean_len = lengths.sum().item() / len(lengths)
@@ -147,7 +147,8 @@ def get_loaders(args, data_csv_train, data_csv_val):
     sampler = SequentialSampler(
         dataset=data_csv_train,
         init_sample_probs=init_sample_probs,
-        dataset_len=args.epoch_size
+        dataset_len=args.epoch_size,
+        sample_probs_power=args.sample_probs_power
     )
     batcher = torch.utils.data.BatchSampler(
         sampler, batch_size=args.train_batch_size, drop_last=True)
@@ -234,6 +235,7 @@ def main(args):
         print(f'\nEpoch {epoch}, Loss: {loss_avg:.4f}, '
               f'Avg seq length: {len_avg:.2f}, '
               f'Samples prob greater 1: {(sampler.init_sample_probs > 1).sum()}, '
+              f'Unique samples in epoch: {len(np.unique(sampler.dataset_indexes))}, '
               f'LR: {lr:.7f}, loop_time: {loop_time}')
 
         levenshtein_avg, acc_avg, loop_time = val_loop(
@@ -246,17 +248,17 @@ def main(args):
         if acc_avg > best_acc:
             best_acc = acc_avg
             encoder_save_path = os.path.join(
-                args.model_path, f'encoder-{epoch}-{acc_avg:.3f}.ckpt')
+                args.model_path, f'encoder-{epoch}-{acc_avg:.4f}.ckpt')
             decoder_save_path = os.path.join(
-                args.model_path, f'decoder-{epoch}-{acc_avg:.3f}.ckpt')
+                args.model_path, f'decoder-{epoch}-{acc_avg:.4f}.ckpt')
             torch.save(encoder.state_dict(), encoder_save_path)
             torch.save(decoder.state_dict(), decoder_save_path)
             print('Val weights saved')
             encoder_limit_control(encoder_save_path)
             decoder_limit_control(decoder_save_path)
 
-            probs_csv_save_path = os.path.join(args.model_path,
-                                               f'sample_probs-{epoch}.csv')
+            probs_csv_save_path = os.path.join(
+                args.model_path, f'sample_probs-{epoch}-{acc_avg:.4f}.csv')
             probs_csv = pd.DataFrame(data=sampler.init_sample_probs,
                                      columns=["sample_probs"])
             probs_csv.to_csv(probs_csv_save_path, index=False)
@@ -281,8 +283,11 @@ if __name__ == '__main__':
     parser.add_argument('--prefetch_factor', type=int, default=4)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     parser.add_argument('--transf_prob', type=float, default=0.25)
-    parser.add_argument('--ReduceLROnPlateau_factor', type=float, default=0.5)
-    parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=15)
+    parser.add_argument('--sample_probs_power', type=float, default=0.15,
+                        help='The degree to which the sample probs is raised \
+                              to make probs smoother/sharper.')
+    parser.add_argument('--ReduceLROnPlateau_factor', type=float, default=0.8)
+    parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=5)
     parser.add_argument('--loss_threshold_to_validate', type=float, default=0.05)
 
     args = parser.parse_args()
