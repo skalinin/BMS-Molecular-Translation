@@ -52,7 +52,7 @@ def get_token_weights(data_csv):
 
 
 def train_loop(data_loader, encoder, decoder, criterion, optimizer,
-               sampler, criterion_no_reduction):
+               sampler, criterion_no_reduction, epoch):
     loss_avg = AverageMeter()
     strat_time = time.time()
     len_avg = AverageMeter()
@@ -72,13 +72,16 @@ def train_loop(data_loader, encoder, decoder, criterion, optimizer,
         with torch.cuda.amp.autocast():
             features = encoder(images)
             predictions, decode_lengths = decoder(features, captions, lengths)
-            # Since we decoded starting with <start>, the targets are all words after <start>, up to <end>
+            # Since we decoded starting with <start>, the targets are all words
+            # after <start>, up to <end>
             targets = captions[:, 1:]
             # Remove timesteps that we didn't decode at, or are pads
             # pack_padded_sequence is an easy trick to do this
-            targets = pack_padded_sequence(targets, decode_lengths, batch_first=True)[0]
-            outputs = pack_padded_sequence(predictions, decode_lengths, batch_first=True)[0]
-            loss = criterion(outputs, targets)  # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
+            targets = pack_padded_sequence(
+                targets, decode_lengths, batch_first=True)[0]
+            outputs = pack_padded_sequence(
+                predictions, decode_lengths, batch_first=True)[0]
+            loss = criterion(outputs, targets)
             loss_no_reduction = criterion_no_reduction(outputs, targets)
 
         # update sample probs in batchsampler
@@ -95,11 +98,18 @@ def train_loop(data_loader, encoder, decoder, criterion, optimizer,
                                        model_config['decoder_clip_grad_norm'])
         SCALER.step(optimizer)
         SCALER.update()
+
     loop_time = sec2min(time.time() - strat_time)
-    return loss_avg.avg, len_avg.avg, loop_time
+    for param_group in optimizer.param_groups:
+        lr = param_group['lr']
+    print(f'\nEpoch {epoch}, Loss: {loss_avg.avg:.4f}, '
+          f'Avg seq length: {len_avg.avg:.2f}, '
+          f'Samples prob greater 1: {(sampler.init_sample_probs > 1).sum()}, '
+          f'Unique samples in epoch: {len(np.unique(sampler.dataset_indexes))}, '
+          f'LR: {lr:.7f}, loop_time: {loop_time}')
 
 
-def val_loop(data_loader, encoder, decoder, tokenizer, max_seq_length):
+def val_loop(data_loader, encoder, decoder, tokenizer, max_seq_len):
     levenshtein_avg = AverageMeter()
     acc_avg = AverageMeter()
     strat_time = time.time()
@@ -116,13 +126,18 @@ def val_loop(data_loader, encoder, decoder, tokenizer, max_seq_length):
             with torch.no_grad():
                 features = encoder(images)
                 predictions = decoder.predict(
-                    features, max_seq_length, tokenizer.token2idx["<sos>"])
-        predicted_sequence = torch.argmax(predictions.detach().cpu(), -1).numpy()
+                    features, max_seq_len, tokenizer.token2idx["<sos>"])
+        predicted_sequence = \
+            torch.argmax(predictions.detach().cpu(), -1).numpy()
         text_preds = tokenizer.predict_captions(predicted_sequence)
-        levenshtein_avg.update(get_levenshtein_score(text_true, text_preds), batch_size)
+        levenshtein_avg.update(
+            get_levenshtein_score(text_true, text_preds), batch_size)
         acc_avg.update(get_accuracy(text_true, text_preds), batch_size)
+
     loop_time = sec2min(time.time() - strat_time)
-    return levenshtein_avg.avg, acc_avg.avg, loop_time
+    print(f'Validation, Levenshtein: {levenshtein_avg.avg:.4f}, '
+          f'acc: {acc_avg:.4f}, loop_time: {loop_time}')
+    return acc_avg.avg
 
 
 def get_loaders(args, data_csv_train, data_csv_val):
@@ -133,11 +148,11 @@ def get_loaders(args, data_csv_train, data_csv_val):
     else:
         print(f'Train dataset len: {data_csv_train.shape[0]}')
 
+    # create train dataloader with custom batch_sampler
     train_transform = get_train_transforms(model_config['image_height'],
                                            model_config['image_width'],
                                            args.transf_prob)
     train_dataset = BMSDataset(data_csv_train, train_transform)
-    # create train dataloader with custom batch_sampler
     if args.sample_probs_csv_path:
         df = pd.read_csv(args.sample_probs_csv_path)
         init_sample_probs = df['sample_probs'].values
@@ -176,16 +191,13 @@ def get_loaders(args, data_csv_train, data_csv_val):
 def main(args):
     train_csv = pd.read_pickle(model_config["paths"]["train_csv"])
     val_csv = pd.read_pickle(model_config["paths"]["val_csv"])
-    max_seq_length = train_csv['Tokens_len'].max()
-    print(max_seq_length)
-
-    # Create model directory
+    max_seq_len = train_csv['Tokens_len'].max()
+    print(max_seq_len)
     make_dir(args.model_path)
 
     tokenizer = torch.load(model_config["paths"]["tokenizer"])
     train_loader, val_loader, sampler = get_loaders(args, train_csv, val_csv)
 
-    # Build the models
     encoder = EncoderCNN()
     if args.encoder_pretrain:
         states = torch.load(args.encoder_pretrain, map_location=DEVICE)
@@ -206,7 +218,6 @@ def main(args):
         print('Load pretrained decoder')
     decoder.to(DEVICE)
 
-    # Loss and optimizer
     # class_weigths = get_token_weights(train_csv)
     criterion = nn.CrossEntropyLoss()
     criterion_no_reduction = nn.CrossEntropyLoss(reduction='none')
@@ -222,27 +233,11 @@ def main(args):
     sample_limit_control = FilesLimitControl()
     best_acc = -np.inf
 
-    levenshtein_avg, acc_avg, loop_time = val_loop(
-        val_loader, encoder, decoder, tokenizer, max_seq_length)
-    print(f'Validation, Levenshtein: {levenshtein_avg:.4f}, '
-          f'acc: {acc_avg:.4f}, loop_time: {loop_time}')
+    acc_avg = val_loop(val_loader, encoder, decoder, tokenizer, max_seq_len)
     for epoch in range(10000):
-        loss_avg, len_avg, loop_time = \
-            train_loop(train_loader, encoder, decoder, criterion, optimizer,
-                       sampler, criterion_no_reduction)
-        for param_group in optimizer.param_groups:
-            lr = param_group['lr']
-        print(f'\nEpoch {epoch}, Loss: {loss_avg:.4f}, '
-              f'Avg seq length: {len_avg:.2f}, '
-              f'Samples prob greater 1: {(sampler.init_sample_probs > 1).sum()}, '
-              f'Unique samples in epoch: {len(np.unique(sampler.dataset_indexes))}, '
-              f'LR: {lr:.7f}, loop_time: {loop_time}')
-
-        levenshtein_avg, acc_avg, loop_time = val_loop(
-            val_loader, encoder, decoder, tokenizer, max_seq_length)
-        print(f'Validation, Levenshtein: {levenshtein_avg:.4f}, '
-              f'acc: {acc_avg:.4f}, loop_time: {loop_time}')
-
+        train_loop(train_loader, encoder, decoder, criterion, optimizer,
+                   sampler, criterion_no_reduction, epoch)
+        acc_avg = val_loop(val_loader, encoder, decoder, tokenizer, max_seq_len)
         scheduler.step(acc_avg)
 
         if acc_avg > best_acc:
@@ -291,4 +286,5 @@ if __name__ == '__main__':
     parser.add_argument('--loss_threshold_to_validate', type=float, default=0.05)
 
     args = parser.parse_args()
+
     main(args)
