@@ -5,6 +5,7 @@ from tqdm import tqdm
 import torch
 import argparse
 import json
+from rdkit import Chem
 
 from bms.utils import get_file_path
 from bms.dataset import BMSSumbissionDataset
@@ -12,9 +13,21 @@ from bms.transforms import get_val_transforms
 from bms.model import EncoderCNN, DecoderWithAttention
 from bms.utils import load_pretrain_model
 
+from rdkit import RDLogger
+RDLogger.DisableLog('rdApp.*')
+
 tqdm.pandas()
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+def make_inchi_from_smile(smile):
+    inchi = 'InChI=1S/'
+    try:
+        inchi = Chem.MolToInchi(Chem.MolFromSmiles(smile))
+    except:
+        pass
+    return inchi
 
 
 def test_loop(data_loader, encoder, decoder, tokenizer, max_seq_length):
@@ -85,10 +98,10 @@ def main(args):
     predictions = test_loop(test_loader, encoder, decoder, tokenizer,
                             args.max_seq_length)
 
-    test_csv['InChI'] = predictions
+    test_csv['Smile'] = predictions
+    test_csv['InChI'] = test_csv['Smile'].progress_apply(make_inchi_from_smile)
     test_csv[['image_id', 'InChI']].to_csv(
         os.path.join(args.submission_path, 'submission.csv'), index=False)
-    print(test_csv.head())
 
 
 if __name__ == '__main__':

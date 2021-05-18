@@ -136,7 +136,7 @@ def val_loop(data_loader, encoder, decoder, tokenizer, max_seq_len):
 
     loop_time = sec2min(time.time() - strat_time)
     print(f'Validation, Levenshtein: {levenshtein_avg.avg:.4f}, '
-          f'acc: {acc_avg:.4f}, loop_time: {loop_time}')
+          f'acc: {acc_avg.avg:.4f}, loop_time: {loop_time}')
     return acc_avg.avg
 
 
