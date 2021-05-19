@@ -5,8 +5,8 @@
    "dropout": 0.5,
    "encoder_clip_grad_norm": 5,
    "decoder_clip_grad_norm": 5,
-   "image_height": 288,
-   "image_width": 288,
+   "image_height": 320,
+   "image_width": 320,
    "train_dataset_size": 0.95,
    "paths": {
        "tokenizer": "/workdir/data/processed/tokenizer.pth",

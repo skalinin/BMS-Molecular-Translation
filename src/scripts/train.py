@@ -233,7 +233,7 @@ def main(args):
     sample_limit_control = FilesLimitControl()
     best_acc = -np.inf
 
-    acc_avg = val_loop(val_loader, encoder, decoder, tokenizer, max_seq_len)
+    # acc_avg = val_loop(val_loader, encoder, decoder, tokenizer, max_seq_len)
     for epoch in range(10000):
         train_loop(train_loader, encoder, decoder, criterion, optimizer,
                    sampler, criterion_no_reduction, epoch)
@@ -271,8 +271,8 @@ if __name__ == '__main__':
                         help='Decoder pretrain path')
     parser.add_argument('--sample_probs_csv_path', type=str, default='',
                         help='Path to csv with samples probs for batch sampler')
-    parser.add_argument('--train_batch_size', type=int, default=50)
-    parser.add_argument('--val_batch_size', type=int, default=256)
+    parser.add_argument('--train_batch_size', type=int, default=43)
+    parser.add_argument('--val_batch_size', type=int, default=250)
     parser.add_argument('--epoch_size', type=int, default=200000)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--prefetch_factor', type=int, default=4)
@@ -282,7 +282,7 @@ if __name__ == '__main__':
                         help='The degree to which the sample probs is raised \
                               to make probs smoother/sharper.')
     parser.add_argument('--ReduceLROnPlateau_factor', type=float, default=0.8)
-    parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=5)
+    parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=10)
     parser.add_argument('--loss_threshold_to_validate', type=float, default=0.05)
 
     args = parser.parse_args()

@@ -141,9 +141,9 @@ def tokenize_data():
     train_csv, val_csv, external_data_csv = load_csv_data(
         TRAIN_CSV_PATH, VAL_CSV_PATH, EXTERNAL_TRAIN_CSV_PATHS)
 
-    train_csv = preprocess_data(train_csv, tokenizer)
-    val_csv = preprocess_data(val_csv, tokenizer)
-    # external_data_csv = preprocess_data(external_data_csv, tokenizer, 300, 105)
+    train_csv = preprocess_data(train_csv, tokenizer, 50, 100)
+    val_csv = preprocess_data(val_csv, tokenizer, 50, 100)
+    # external_data_csv = preprocess_data(external_data_csv, tokenizer, 1000, 100)
 
     tokenizer.fit_on_texts()
     print(tokenizer.token2idx)
