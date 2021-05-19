@@ -171,7 +171,6 @@ def get_loaders(args, data_csv_train, data_csv_val):
         dataset=train_dataset,
         batch_sampler=batcher,
         num_workers=args.num_workers,
-        prefetch_factor=args.prefetch_factor,
         collate_fn=collate_fn
     )
 
@@ -272,16 +271,15 @@ if __name__ == '__main__':
     parser.add_argument('--sample_probs_csv_path', type=str, default='',
                         help='Path to csv with samples probs for batch sampler')
     parser.add_argument('--train_batch_size', type=int, default=43)
-    parser.add_argument('--val_batch_size', type=int, default=250)
-    parser.add_argument('--epoch_size', type=int, default=200000)
+    parser.add_argument('--val_batch_size', type=int, default=230)
+    parser.add_argument('--epoch_size', type=int, default=100000)
     parser.add_argument('--num_workers', type=int, default=8)
-    parser.add_argument('--prefetch_factor', type=int, default=4)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     parser.add_argument('--transf_prob', type=float, default=0.25)
     parser.add_argument('--sample_probs_power', type=float, default=0.15,
                         help='The degree to which the sample probs is raised \
                               to make probs smoother/sharper.')
-    parser.add_argument('--ReduceLROnPlateau_factor', type=float, default=0.8)
+    parser.add_argument('--ReduceLROnPlateau_factor', type=float, default=0.75)
     parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=10)
     parser.add_argument('--loss_threshold_to_validate', type=float, default=0.05)
 
