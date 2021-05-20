@@ -272,7 +272,7 @@ if __name__ == '__main__':
                         help='Path to csv with samples probs for batch sampler')
     parser.add_argument('--train_batch_size', type=int, default=43)
     parser.add_argument('--val_batch_size', type=int, default=230)
-    parser.add_argument('--epoch_size', type=int, default=100000)
+    parser.add_argument('--epoch_size', type=int, default=200000)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     parser.add_argument('--transf_prob', type=float, default=0.25)
@@ -280,7 +280,7 @@ if __name__ == '__main__':
                         help='The degree to which the sample probs is raised \
                               to make probs smoother/sharper.')
     parser.add_argument('--ReduceLROnPlateau_factor', type=float, default=0.75)
-    parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=10)
+    parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=5)
     parser.add_argument('--loss_threshold_to_validate', type=float, default=0.05)
 
     args = parser.parse_args()
