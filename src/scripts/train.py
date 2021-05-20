@@ -105,7 +105,6 @@ def train_loop(data_loader, encoder, decoder, criterion, optimizer,
     print(f'\nEpoch {epoch}, Loss: {loss_avg.avg:.4f}, '
           f'Avg seq length: {len_avg.avg:.2f}, '
           f'Samples prob greater 1: {(sampler.init_sample_probs > 1).sum()}, '
-          f'Unique samples in epoch: {len(np.unique(sampler.dataset_indexes))}, '
           f'LR: {lr:.7f}, loop_time: {loop_time}')
 
 
@@ -153,16 +152,18 @@ def get_loaders(args, data_csv_train, data_csv_val):
                                            model_config['image_width'],
                                            args.transf_prob)
     train_dataset = BMSDataset(data_csv_train, train_transform)
+
     if args.sample_probs_csv_path:
         df = pd.read_csv(args.sample_probs_csv_path)
         init_sample_probs = df['sample_probs'].values
         print('Load sample probs from csv')
     else:
         init_sample_probs = None
+
     sampler = SequentialSampler(
-        dataset=data_csv_train,
+        dataset_len=len(data_csv_train),
+        epoch_size=args.epoch_size,
         init_sample_probs=init_sample_probs,
-        dataset_len=args.epoch_size,
         sample_probs_power=args.sample_probs_power
     )
     batcher = torch.utils.data.BatchSampler(
@@ -280,8 +281,7 @@ if __name__ == '__main__':
                         help='The degree to which the sample probs is raised \
                               to make probs smoother/sharper.')
     parser.add_argument('--ReduceLROnPlateau_factor', type=float, default=0.75)
-    parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=5)
-    parser.add_argument('--loss_threshold_to_validate', type=float, default=0.05)
+    parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=6)
 
     args = parser.parse_args()
 

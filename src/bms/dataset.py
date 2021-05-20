@@ -5,6 +5,19 @@ import random
 import cv2
 
 
+def apply_smart_batching(epoch_sample_indexes, seq_lenghts, batch_size):
+    """Sort indexes by samples length to make LSTM training faster.
+    May affect the quality of the training.
+    """
+    epoch_seq_lengths = np.take(seq_lenghts, epoch_sample_indexes)
+    sorted_indexes = [
+        idx for _, idx in
+        sorted(zip(epoch_seq_lengths, epoch_sample_indexes), reverse=True)
+    ]
+    batched_sorted_indexes = build_batches(sorted_indexes, batch_size)
+    return batched_sorted_indexes
+
+
 def build_batches(sentences, batch_size, num_chunks_in_batch=1):
     """
     Randomize batches sequences along sentences if dataset indexes.
@@ -33,52 +46,51 @@ class SequentialSampler(Sampler):
     """Make sequence of dataset indexes for batch sampler.
 
     Args:
-        dataset (torch.utils.data.Dataset): Torch dataset or ConcatDataset
-        dataset_len (int, optional): Length of output dataset (by default it
+        dataset_len (int): Length of train dataset (by default it
             is equal to the length of the input dataset).
-        batch_size (int, optional): Batch size, only used in smartbatching.
+        epoch_size (int, optional): Size of train epoch (by default it
+            is equal to the dataset_len). Can be specified if you need to
+            reduce the time of the epoch.
         smart_batching (bool, optional): Apply smartbatching, default is False.
-        init_sample_probs (list, optional): list of samples' probabilities to
+            To use smartbatching the batch_size and seq_lenghts must be specified.
+        batch_size (int, optional): Batch size, only used in smartbatching.
+        seq_lenghts (list, optional): List of sequences' lenghts, used in
+            smartbatching to sort samples.
+        init_sample_probs (list, optional): List of samples' probabilities to
             be added in batch. If None probs for all samples would be the same.
             The length of the list must be equal to the length of the dataset.
         sample_probs_power (int, optional): The degree to which sample probs
             is raised to make probs smoother/sharper. Default is 1 (no power).
     """
     def __init__(
-        self, dataset, dataset_len=None, batch_size=None, smart_batching=False,
-        init_sample_probs=None, sample_probs_power=1
+        self, dataset_len, epoch_size=None, batch_size=None, seq_lenghts=None,
+        smart_batching=False, init_sample_probs=None, sample_probs_power=1
     ):
-        self.dataset = dataset
-        if dataset_len is not None:
-            self.dataset_len = dataset_len
+        self.dataset_len = dataset_len
+        if epoch_size is not None:
+            self.epoch_size = epoch_size
         else:
-            self.dataset_len = len(self.dataset)
+            self.epoch_size = dataset_len
+
+        # smartbatching params
         self.batch_size = batch_size
         self.smart_batching = smart_batching
-        self.dataset_indexes = np.array([])
+        self.seq_lenghts = seq_lenghts
+        if smart_batching:
+            assert seq_lenghts is not None and batch_size is not None, \
+                "Both seq_lenghts and batch_size muse be specified to use " \
+                "smart batching."
+
+        # sample probs params
         self.sample_probs_power = sample_probs_power
         if init_sample_probs is None:
             self.init_sample_probs = \
-                np.array([1. for i in range(len(self.dataset))],
-                         dtype=np.float64)
+                np.array([1. for i in range(dataset_len)], dtype=np.float64)
         else:
-            self.init_sample_probs = np.array(init_sample_probs,
-                                              dtype=np.float64)
-            assert len(self.init_sample_probs) == len(self.dataset), "The len \
-                of the sample_probs must be equal to the len of the dataset."
-
-    def smart_batches(self, dataset_indexes):
-        """Sort inexex by samples length to make LSTM training faster.
-        May affect the quality of the training.
-        """
-        samples_len = \
-            self.dataset.iloc[dataset_indexes]['Tokens_len'].values
-        sorted_indexes = [
-            idx for _, idx in
-            sorted(zip(samples_len, dataset_indexes), reverse=True)
-        ]
-        batched_sorted_indexes = build_batches(sorted_indexes, self.batch_size)
-        return batched_sorted_indexes
+            self.init_sample_probs = \
+                np.array(init_sample_probs, dtype=np.float64)
+            assert len(self.init_sample_probs) == dataset_len, "The len " \
+                "of the sample_probs must be equal to the dataset_len."
 
     def _sample_probs_normalization(self, sample_probs):
         """Probabilities normalization to make them sum to 1.
@@ -100,14 +112,19 @@ class SequentialSampler(Sampler):
     def __iter__(self):
         sample_probs = self._sample_probs_power()
         sample_probs = self._sample_probs_normalization(sample_probs)
-        self.dataset_indexes = np.random.choice(
-            len(self.dataset), self.dataset_len, p=sample_probs)
+        dataset_indexes = np.random.choice(
+            a=self.dataset_len,
+            size=self.epoch_size,
+            p=sample_probs,
+            replace=False,  # only unique samples inside an epoch
+        )
         if self.smart_batching:
-            self.dataset_indexes = self.smart_batches(self.dataset_indexes)
-        return iter(self.dataset_indexes)
+            dataset_indexes = apply_smart_batching(
+                dataset_indexes, self.seq_lenghts, self.batch_size)
+        return iter(dataset_indexes)
 
     def __len__(self):
-        return self.dataset_len
+        return self.epoch_size
 
 
 def collate_fn(data):
