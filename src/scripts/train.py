@@ -106,6 +106,7 @@ def train_loop(data_loader, encoder, decoder, criterion, optimizer,
           f'Avg seq length: {len_avg.avg:.2f}, '
           f'Samples prob greater 1: {(sampler.init_sample_probs > 1).sum()}, '
           f'LR: {lr:.7f}, loop_time: {loop_time}')
+    return loss_avg.avg
 
 
 def val_loop(data_loader, encoder, decoder, tokenizer, max_seq_len):
@@ -222,9 +223,10 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
     criterion_no_reduction = nn.CrossEntropyLoss(reduction='none')
     params = list(decoder.parameters()) + list(encoder.parameters())
-    optimizer = torch.optim.Adam(params, lr=args.learning_rate)
+    optimizer = torch.optim.AdamW(params, lr=args.learning_rate,
+                                  weight_decay=0.01)
     scheduler = ReduceLROnPlateau(optimizer=optimizer,
-                                  mode='max',
+                                  mode='min',
                                   factor=args.ReduceLROnPlateau_factor,
                                   patience=args.ReduceLROnPlateau_patience)
 
@@ -235,10 +237,10 @@ def main(args):
 
     # acc_avg = val_loop(val_loader, encoder, decoder, tokenizer, max_seq_len)
     for epoch in range(10000):
-        train_loop(train_loader, encoder, decoder, criterion, optimizer,
+        loss_avg = train_loop(train_loader, encoder, decoder, criterion, optimizer,
                    sampler, criterion_no_reduction, epoch)
         acc_avg = val_loop(val_loader, encoder, decoder, tokenizer, max_seq_len)
-        scheduler.step(acc_avg)
+        scheduler.step(loss_avg)
 
         if acc_avg > best_acc:
             best_acc = acc_avg
