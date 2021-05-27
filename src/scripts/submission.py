@@ -4,13 +4,13 @@ import numpy as np
 from tqdm import tqdm
 import torch
 import argparse
-import json
 from rdkit import Chem
 
 from bms.utils import get_file_path
 from bms.dataset import BMSSumbissionDataset
 from bms.transforms import get_val_transforms
 from bms.model import EncoderCNN, DecoderWithAttention
+from bms.model_config import model_config
 from bms.utils import load_pretrain_model
 
 from rdkit import RDLogger
@@ -52,15 +52,11 @@ def test_loop(data_loader, encoder, decoder, tokenizer, max_seq_length):
 
 
 def main(args):
-    with open(args.config_path) as data:
-        model_config = json.load(data)
-
-    test_csv = pd.read_csv(
-        '/workdir/data/bms-molecular-translation/sample_submission.csv')
+    test_csv = pd.read_csv(model_config["paths"]["submission_csv"])
     test_csv['image_path'] = test_csv['image_id'].progress_apply(
         get_file_path, main_folder='test')
 
-    tokenizer = torch.load('/workdir/data/processed/tokenizer.pth')
+    tokenizer = torch.load(model_config["paths"]["tokenizer"])
 
     test_transform = get_val_transforms(
         model_config['image_height'], model_config['image_width'])
@@ -106,9 +102,6 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config_path', type=str,
-                        default='/workdir/src/bms/model_config.json',
-                        help='Path to model config json')
     parser.add_argument('--submission_path', type=str,
                         default='/workdir/data/experiments/',
                         help='path for saving submission csv')
