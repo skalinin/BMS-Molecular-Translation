@@ -10,7 +10,6 @@ class EncoderCNN(nn.Module):
 
     def forward(self, x):
         features = self.cnn.forward_features(x)
-        features = features.permute(0, 2, 3, 1)
         return features
 
 
@@ -55,7 +54,7 @@ class DecoderWithAttention(nn.Module):
     """Decoder network with attention network used for training."""
 
     def __init__(self, attention_dim, embed_dim, decoder_dim, vocab_size,
-                 device, encoder_dim=1536, dropout=0.5):
+                 device, encoder_dim=1536, dropout=0.5, dropout2d=0.5):
         """
         Args:
             attention_dim: Input size of attention network.
@@ -72,12 +71,12 @@ class DecoderWithAttention(nn.Module):
         self.decoder_dim = decoder_dim
         self.vocab_size = vocab_size
         self.device = device
-        self.dropout = dropout
         self.attention = Attention(encoder_dim, decoder_dim, attention_dim)
         self.embedding = nn.Embedding(vocab_size, embed_dim)
         self.decode_step = nn.LSTMCell(embed_dim + encoder_dim, decoder_dim,
                                        bias=True)
-        self.dropout = nn.Dropout(p=self.dropout)
+        self.dropout = nn.Dropout(p=dropout)
+        self.dropout2d = nn.Dropout2d(p=dropout2d)
         self.init_h = nn.Linear(encoder_dim, decoder_dim)
         self.init_c = nn.Linear(encoder_dim, decoder_dim)
         self.f_beta = nn.Linear(decoder_dim, encoder_dim)
@@ -104,8 +103,10 @@ class DecoderWithAttention(nn.Module):
             caption_lengths: Length of transformed sequence.
         """
         batch_size = encoder_out.size(0)
-        encoder_dim = encoder_out.size(-1)
+        encoder_dim = encoder_out.size(1)
         vocab_size = self.vocab_size
+        encoder_out = self.dropout2d(encoder_out)
+        encoder_out = encoder_out.permute(0, 2, 3, 1)
         encoder_out = encoder_out.view(batch_size, -1, encoder_dim)
 
         embeddings = self.embedding(encoded_captions)
@@ -136,8 +137,10 @@ class DecoderWithAttention(nn.Module):
 
     def predict(self, encoder_out, decode_lengths, start_token_index):
         batch_size = encoder_out.size(0)
-        encoder_dim = encoder_out.size(-1)
+        encoder_dim = encoder_out.size(1)
         vocab_size = self.vocab_size
+        encoder_out = self.dropout2d(encoder_out)
+        encoder_out = encoder_out.permute(0, 2, 3, 1)
         encoder_out = encoder_out.view(batch_size, -1, encoder_dim)
         # embed start token for LSTM input
         start_tockens = torch.ones(batch_size, dtype=torch.long).to(self.device)

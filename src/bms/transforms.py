@@ -224,7 +224,7 @@ class AdaptiveCrop:
 
 def get_train_transforms(output_height, output_width, prob):
     transforms = torchvision.transforms.Compose([
-        AdaptiveCrop(),
+        # AdaptiveCrop(),
         Scale((output_height, output_width)),
         RandomTransposeAndFlip(),
         UseWithProb(RandomGaussianBlur(max_ksize=3), prob=prob),
@@ -237,8 +237,7 @@ def get_train_transforms(output_height, output_width, prob):
 
 def get_val_transforms(output_height, output_width):
     transforms = torchvision.transforms.Compose([
-        MakeHorizontal(),
-        AdaptiveCrop(),
+        # AdaptiveCrop(),
         Scale((output_height, output_width)),
         Normalize(),
         MoveChannels(),

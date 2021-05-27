@@ -52,25 +52,29 @@ def get_token_weights(data_csv):
 
 
 def train_loop(data_loader, encoder, decoder, criterion, optimizer,
-               sampler, criterion_no_reduction, epoch):
+               sampler, criterion_no_reduction, epoch, freeze_encoder):
     loss_avg = AverageMeter()
     strat_time = time.time()
     len_avg = AverageMeter()
-    if not decoder.training:
-        decoder.train()
-    if not encoder.training:
+    if freeze_encoder:
+        encoder.eval()
+    else:
         encoder.train()
+    decoder.train()
 
     tqdm_data_loader = tqdm(data_loader, total=len(data_loader), leave=False)
     for images, captions, lengths, text_true, idxs in tqdm_data_loader:
         decoder.zero_grad()
         encoder.zero_grad()
-
         images = images.to(DEVICE)
         captions = captions.to(DEVICE)
         batch_size = len(text_true)
         with torch.cuda.amp.autocast():
-            features = encoder(images)
+            if freeze_encoder:
+                with torch.no_grad():
+                    features = encoder(images)
+            else:
+                features = encoder(images)
             predictions, decode_lengths = decoder(features, captions, lengths)
             # Since we decoded starting with <start>, the targets are all words
             # after <start>, up to <end>
@@ -102,7 +106,7 @@ def train_loop(data_loader, encoder, decoder, criterion, optimizer,
     loop_time = sec2min(time.time() - strat_time)
     for param_group in optimizer.param_groups:
         lr = param_group['lr']
-    print(f'\nEpoch {epoch}, Loss: {loss_avg.avg:.4f}, '
+    print(f'\nEpoch {epoch}, Loss: {loss_avg.avg:.5f}, '
           f'Avg seq length: {len_avg.avg:.2f}, '
           f'Samples prob greater 1: {(sampler.init_sample_probs > 1).sum()}, '
           f'LR: {lr:.7f}, loop_time: {loop_time}')
@@ -113,10 +117,8 @@ def val_loop(data_loader, encoder, decoder, tokenizer, max_seq_len):
     levenshtein_avg = AverageMeter()
     acc_avg = AverageMeter()
     strat_time = time.time()
-    if decoder.training:
-        decoder.eval()
-    if encoder.training:
-        encoder.eval()
+    decoder.eval()
+    encoder.eval()
 
     tqdm_data_loader = tqdm(data_loader, total=len(data_loader), leave=False)
     for images, _, _, text_true, _ in tqdm_data_loader:
@@ -222,7 +224,10 @@ def main(args):
     # class_weigths = get_token_weights(train_csv)
     criterion = nn.CrossEntropyLoss()
     criterion_no_reduction = nn.CrossEntropyLoss(reduction='none')
-    params = list(decoder.parameters()) + list(encoder.parameters())
+    if args.freeze_encoder:
+        params = list(decoder.parameters())
+    else:
+        params = list(decoder.parameters()) + list(encoder.parameters())
     optimizer = torch.optim.AdamW(params, lr=args.learning_rate,
                                   weight_decay=0.01)
     scheduler = ReduceLROnPlateau(optimizer=optimizer,
@@ -237,8 +242,10 @@ def main(args):
 
     # acc_avg = val_loop(val_loader, encoder, decoder, tokenizer, max_seq_len)
     for epoch in range(10000):
-        loss_avg = train_loop(train_loader, encoder, decoder, criterion, optimizer,
-                   sampler, criterion_no_reduction, epoch)
+        loss_avg = train_loop(
+            train_loader, encoder, decoder, criterion, optimizer, sampler,
+            criterion_no_reduction, epoch, args.freeze_encoder
+        )
         acc_avg = val_loop(val_loader, encoder, decoder, tokenizer, max_seq_len)
         scheduler.step(loss_avg)
 
@@ -273,17 +280,19 @@ if __name__ == '__main__':
                         help='Decoder pretrain path')
     parser.add_argument('--sample_probs_csv_path', type=str, default='',
                         help='Path to csv with samples probs for batch sampler')
-    parser.add_argument('--train_batch_size', type=int, default=43)
-    parser.add_argument('--val_batch_size', type=int, default=230)
-    parser.add_argument('--epoch_size', type=int, default=200000)
+    parser.add_argument('--train_batch_size', type=int, default=52)
+    parser.add_argument('--val_batch_size', type=int, default=400)
+    parser.add_argument('--epoch_size', type=int, default=100000)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     parser.add_argument('--transf_prob', type=float, default=0.25)
     parser.add_argument('--sample_probs_power', type=float, default=0.15,
                         help='The degree to which the sample probs is raised \
                               to make probs smoother/sharper.')
-    parser.add_argument('--ReduceLROnPlateau_factor', type=float, default=0.75)
-    parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=6)
+    parser.add_argument('--ReduceLROnPlateau_factor', type=float, default=0.5)
+    parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=10)
+    parser.add_argument('--freeze_encoder', action='store_true',
+                        help='To freeze encoder weights')
 
     args = parser.parse_args()
 
