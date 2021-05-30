@@ -12,8 +12,7 @@ tqdm.pandas()
 TRAIN_CSV_PATH = '/workdir/data/bms-molecular-translation/train_labels_processd.csv'
 VAL_CSV_PATH = '/workdir/data/bms-molecular-translation/val_labels_processd.csv'
 EXTERNAL_TRAIN_CSV_PATHS = [
-    '/workdir/data/LG_SMILES/train_processed.csv',
-    '/workdir/data/TOX21/train_processed.csv'
+    '/workdir/data/extra_approved_InChIs/extra_approved_InChIs_processed.csv',
 ]
 
 
@@ -143,7 +142,7 @@ def tokenize_data():
 
     train_csv = preprocess_data(train_csv, tokenizer)
     val_csv = preprocess_data(val_csv, tokenizer)
-    # external_data_csv = preprocess_data(external_data_csv, tokenizer, 1000, 100)
+    external_data_csv = preprocess_data(external_data_csv, tokenizer, 1000, 100)
 
     tokenizer.fit_on_texts()
     print(tokenizer.token2idx)
@@ -151,15 +150,15 @@ def tokenize_data():
 
     train_csv = tokens_to_indexes(train_csv, tokenizer)
     val_csv = tokens_to_indexes(val_csv, tokenizer)
-    # external_data_csv = tokens_to_indexes(external_data_csv, tokenizer)
+    external_data_csv = tokens_to_indexes(external_data_csv, tokenizer)
 
-    # train_csv = pd.concat(
-    #     [
-    #         train_csv[['image_path', 'Smile', 'Tokens_indexes', 'Tokens_len']],
-    #         external_data_csv[['image_path', 'Smile', 'Tokens_indexes', 'Tokens_len']]
-    #     ],
-    #     ignore_index=True
-    # )
+    train_csv = pd.concat(
+        [
+            train_csv[['image_path', 'Smile', 'Tokens_indexes', 'Tokens_len']],
+            external_data_csv[['image_path', 'Smile', 'Tokens_indexes', 'Tokens_len']]
+        ],
+        ignore_index=True
+    )
 
     print("Len train csv:", len(train_csv))
     print("Len val csv:", len(val_csv))

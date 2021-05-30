@@ -165,6 +165,9 @@ def get_loaders(args, data_csv_train, data_csv_val):
 
     sampler = SequentialSampler(
         dataset_len=len(data_csv_train),
+        # batch_size=args.train_batch_size,
+        # seq_lenghts=data_csv_train['Tokens_len'].values,
+        # smart_batching=True,
         epoch_size=args.epoch_size,
         init_sample_probs=init_sample_probs,
         sample_probs_power=args.sample_probs_power
@@ -214,6 +217,7 @@ def main(args):
         vocab_size=len(tokenizer),
         device=DEVICE,
         dropout=model_config['dropout'],
+        dropout2d=model_config['dropout2d'],
     )
     if args.decoder_pretrain:
         states = load_pretrain_model(args.decoder_pretrain, decoder, DEVICE)
@@ -240,7 +244,7 @@ def main(args):
     sample_limit_control = FilesLimitControl()
     best_acc = -np.inf
 
-    # acc_avg = val_loop(val_loader, encoder, decoder, tokenizer, max_seq_len)
+    acc_avg = val_loop(val_loader, encoder, decoder, tokenizer, max_seq_len)
     for epoch in range(10000):
         loss_avg = train_loop(
             train_loader, encoder, decoder, criterion, optimizer, sampler,
@@ -281,8 +285,8 @@ if __name__ == '__main__':
     parser.add_argument('--sample_probs_csv_path', type=str, default='',
                         help='Path to csv with samples probs for batch sampler')
     parser.add_argument('--train_batch_size', type=int, default=52)
-    parser.add_argument('--val_batch_size', type=int, default=400)
-    parser.add_argument('--epoch_size', type=int, default=100000)
+    parser.add_argument('--val_batch_size', type=int, default=256)
+    parser.add_argument('--epoch_size', type=int, default=300000)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     parser.add_argument('--transf_prob', type=float, default=0.25)
@@ -290,7 +294,7 @@ if __name__ == '__main__':
                         help='The degree to which the sample probs is raised \
                               to make probs smoother/sharper.')
     parser.add_argument('--ReduceLROnPlateau_factor', type=float, default=0.5)
-    parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=10)
+    parser.add_argument('--ReduceLROnPlateau_patience', type=int, default=7)
     parser.add_argument('--freeze_encoder', action='store_true',
                         help='To freeze encoder weights')
 

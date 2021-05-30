@@ -109,7 +109,7 @@ if __name__ == '__main__':
                         help='encoder pretrain path')
     parser.add_argument('--decoder_pretrain', type=str, default='',
                         help='decoder pretrain path')
-    parser.add_argument('--max_seq_length', type=int,
+    parser.add_argument('--max_seq_length', type=int, default=110,
                         help='max sequenxe lenght to decode')
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--num_workers', type=int, default=8)
