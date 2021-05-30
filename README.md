@@ -23,3 +23,40 @@ The main goal is to translate chemical structure images into [InChI](https://en.
 * Add rotation transoform to different angles.
 * Add beam search.
 * Try to replace LSTM to Transformer.
+
+## Quick setup and start
+
+*  Nvidia drivers >= 460, CUDA >= 11.2
+*  [Docker](https://www.docker.com/), [nvidia-docker](https://github.com/NVIDIA/nvidia-docker)
+
+The provided [Dockerfile](Dockerfile) is supplied to build an image with CUDA support and cuDNN.
+
+### Preparations
+
+* Clone the repo.
+    ```bash
+    git clone git@github.com:skalinin/BMS-competition.git
+    cd BMS-competition
+    ```
+
+* Download and extract [dataset](https://www.kaggle.com/c/bms-molecular-translation/data) to the `data` folder.
+
+* Preprocess dataset csv, generate additional synth images and tokenize data.
+    ```bash
+    python src/scripts/data_preprocess/prepare_csv/BMS_preprocess.py
+    python src/scripts/data_preprocess/prepare_csv/external_synth_data.py
+    python src/scripts/data_preprocess/tokenize_csv.py
+    ```
+
+### Run
+
+* Train model
+  ```bash
+  python src/scripts/train.py
+  ```
+
+* Make submission csv
+  ```bash
+  python src/scripts/submission.py --encoder_pretrain /path/to/encoder-weigths --decoder_pretrain /path/to/decoder-weigths 
+  ```
+
