@@ -7,7 +7,9 @@
 
 The main goal is to translate chemical structure images into [InChI](https://en.wikipedia.org/wiki/International_Chemical_Identifier) transcription - machine-readable format. This is image captioning task and solved as CNN+RNN architecture.
 
-![task example](data/image_captioning.png)
+<p align="center">
+  <img src="data/image_captioning.png" />
+</p>
 
 #### Key points:
 
