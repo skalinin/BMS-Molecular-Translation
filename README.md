@@ -2,6 +2,8 @@
 
 ![header](data/header.jpeg)
 
+Source code of 70th place solution for [Bristol-Myers Squibb – Molecular Translation](https://www.kaggle.com/c/bms-molecular-translation/).
+
 
 ## Solution
 
@@ -59,6 +61,8 @@ The provided [Dockerfile](Dockerfile) is supplied to build an image with CUDA su
 
 * Make submission csv
   ```bash
-  python src/scripts/submission.py --encoder_pretrain /path/to/encoder-weigths --decoder_pretrain /path/to/decoder-weigths 
+  python src/scripts/submission.py \
+    --encoder_pretrain /path/to/encoder-weigths \
+    --decoder_pretrain /path/to/decoder-weigths
   ```
 
