@@ -4,6 +4,7 @@
 
 Source code of 70th place solution for [Bristol-Myers Squibb – Molecular Translation](https://www.kaggle.com/c/bms-molecular-translation/).
 
+You can read about the solution in detail [here](https://www.kaggle.com/c/bms-molecular-translation/discussion/243868).
 
 ## Solution
 
