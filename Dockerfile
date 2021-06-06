@@ -11,7 +11,7 @@ RUN apt-get update &&\
     libglib2.0-0 libgl1-mesa-glx \
     libsm6 libxext6 libxrender1 libssl-dev libx264-dev libsndfile1 libmp3lame-dev &&\
     ln -s /usr/bin/python3 /usr/bin/python &&\
-    ln -s /usr/bin/pip3 /usr/bin/pip &&\
+    ln -sf /usr/bin/pip3 /usr/bin/pip &&\
     apt-get clean &&\
     apt-get autoremove &&\
     rm -rf /var/lib/apt/lists/* &&\

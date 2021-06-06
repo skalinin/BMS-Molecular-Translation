@@ -1,4 +1,4 @@
-NAME?=default-project-gpu
+NAME?=bms-molecular-translation
 
 GPUS?=all
 ifeq ($(GPUS),none)
