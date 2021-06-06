@@ -31,7 +31,7 @@ The main goal is to translate chemical structure images into [InChI](https://en.
 
 ## Quick setup and start
 
-*  Nvidia drivers >= 460, CUDA >= 11.2
+*  Nvidia drivers >= 465, CUDA >= 11.3
 *  [Docker](https://www.docker.com/), [nvidia-docker](https://github.com/NVIDIA/nvidia-docker)
 
 The provided [Dockerfile](Dockerfile) is supplied to build an image with CUDA support and cuDNN.
@@ -44,7 +44,7 @@ The provided [Dockerfile](Dockerfile) is supplied to build an image with CUDA su
     cd BMS-competition
     ```
 
-* Download and extract [dataset](https://www.kaggle.com/c/bms-molecular-translation/data) to the `data` folder.
+* Download and extract [dataset](https://www.kaggle.com/c/bms-molecular-translation/data) to the `data/bms-molecular-translation` folder.
 
 * Preprocess dataset csv, generate additional synth images and tokenize data.
     ```bash
