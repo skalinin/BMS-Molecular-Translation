@@ -1,10 +1,12 @@
 import pandas as pd
 from tqdm import tqdm
 import torch
+import os
 from collections import Counter
 
 from bms.tokenizer import atomwise_tokenizer, Tokenizer
 from bms.model_config import model_config
+from bms.utils import make_dir
 
 tqdm.pandas()
 
@@ -136,6 +138,9 @@ def tokenize_data():
     """
 
     tokenizer = Tokenizer()
+    make_dir(os.path.split(model_config["paths"]["tokenizer"])[0])
+    make_dir(os.path.split(model_config["paths"]["train_csv"])[0])
+    make_dir(os.path.split(model_config["paths"]["val_csv"])[0])
 
     train_csv, val_csv, external_data_csv = load_csv_data(
         TRAIN_CSV_PATH, VAL_CSV_PATH, EXTERNAL_TRAIN_CSV_PATHS)
