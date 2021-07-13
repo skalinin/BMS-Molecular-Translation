@@ -46,6 +46,8 @@ The provided [Dockerfile](Dockerfile) is supplied to build an image with CUDA su
 
 * Download and extract [dataset](https://www.kaggle.com/c/bms-molecular-translation/data) to the `data/bms-molecular-translation` folder.
 
+* `sudo make all` to build a docker image and create a container.
+
 * Preprocess dataset csv, generate additional synth images and tokenize data.
     ```bash
     python src/scripts/data_preprocess/prepare_csv/BMS_preprocess.py
