@@ -40,8 +40,8 @@ The provided [Dockerfile](Dockerfile) is supplied to build an image with CUDA su
 
 * Clone the repo.
     ```bash
-    git clone git@github.com:skalinin/BMS-competition.git
-    cd BMS-competition
+    git clone git@github.com:skalinin/BMS-Molecular-Translation.git
+    cd BMS-Molecular-Translation
     ```
 
 * Download and extract [dataset](https://www.kaggle.com/c/bms-molecular-translation/data) to the `data/bms-molecular-translation` folder.
